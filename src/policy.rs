@@ -630,6 +630,138 @@ mod tests {
         assert_eq!(resp.ttl, 5);
     }
 
+    // ─── Master override takes precedence over client state ────────────
+
+    #[test]
+    fn master_override_replaces_client_state_priorities() {
+        // Client state carries priorities from initial session setup.
+        // Master has pushed a different priority order — the master wins.
+        let state = SessionState {
+            priorities: vec!["cdn-a".into(), "cdn-b".into()],
+            override_gen: 0,
+            ..Default::default()
+        };
+        let overrides = OverrideState {
+            priority_override: Some(PriorityOverride {
+                priorities: vec!["cdn-b".into(), "cdn-a".into()],
+                generation: 1,
+                ttl_override: None,
+            }),
+            generation: 1,
+            ..Default::default()
+        };
+        let resp = evaluate(
+            Protocol::Hls,
+            &state,
+            Some("cdn-a"),
+            Some(5_000_000),
+            &overrides,
+            &PolicyConfig::default(),
+        );
+        // Master override priorities must take precedence
+        assert_eq!(
+            resp.pathway_priority.unwrap(),
+            vec!["cdn-b", "cdn-a"]
+        );
+    }
+
+    #[test]
+    fn master_override_persists_when_client_state_already_has_override_gen() {
+        // Client state was updated by a previous override (override_gen=1).
+        // The SAME override (gen=1) is still active — it must still apply.
+        let state = SessionState {
+            priorities: vec!["cdn-b".into(), "cdn-a".into()],
+            override_gen: 1,
+            ..Default::default()
+        };
+        let overrides = OverrideState {
+            priority_override: Some(PriorityOverride {
+                priorities: vec!["cdn-b".into(), "cdn-a".into()],
+                generation: 1,
+                ttl_override: Some(30),
+            }),
+            generation: 1,
+            ..Default::default()
+        };
+        let resp = evaluate(
+            Protocol::Hls,
+            &state,
+            Some("cdn-b"),
+            Some(5_000_000),
+            &overrides,
+            &PolicyConfig::default(),
+        );
+        assert_eq!(
+            resp.pathway_priority.unwrap(),
+            vec!["cdn-b", "cdn-a"]
+        );
+        assert_eq!(resp.ttl, 30);
+    }
+
+    #[test]
+    fn newer_master_override_replaces_client_state_from_older_override() {
+        // Client has state from override gen=1 (priorities: ["cdn-b", "cdn-a"]).
+        // Master has pushed a NEWER override gen=2 with different priorities.
+        let state = SessionState {
+            priorities: vec!["cdn-b".into(), "cdn-a".into()],
+            override_gen: 1,
+            ..Default::default()
+        };
+        let overrides = OverrideState {
+            priority_override: Some(PriorityOverride {
+                priorities: vec!["cdn-c".into(), "cdn-a".into()],
+                generation: 2,
+                ttl_override: None,
+            }),
+            generation: 2,
+            ..Default::default()
+        };
+        let resp = evaluate(
+            Protocol::Hls,
+            &state,
+            None,
+            None,
+            &overrides,
+            &PolicyConfig::default(),
+        );
+        // Newer override must win over client's stale state
+        assert_eq!(
+            resp.pathway_priority.unwrap(),
+            vec!["cdn-c", "cdn-a"]
+        );
+    }
+
+    #[test]
+    fn master_override_wins_for_dash_protocol() {
+        // Same master-override-takes-precedence behavior for DASH.
+        let state = SessionState {
+            priorities: vec!["alpha".into(), "beta".into()],
+            override_gen: 0,
+            ..Default::default()
+        };
+        let overrides = OverrideState {
+            priority_override: Some(PriorityOverride {
+                priorities: vec!["beta".into(), "alpha".into()],
+                generation: 1,
+                ttl_override: None,
+            }),
+            generation: 1,
+            ..Default::default()
+        };
+        let resp = evaluate(
+            Protocol::Dash,
+            &state,
+            Some("alpha"),
+            Some(5_000_000),
+            &overrides,
+            &PolicyConfig::default(),
+        );
+        assert_eq!(
+            resp.service_location_priority.unwrap(),
+            vec!["beta", "alpha"]
+        );
+    }
+
     // ─── PolicyConfig custom defaults ───────────────────────────────────
 
     #[test]

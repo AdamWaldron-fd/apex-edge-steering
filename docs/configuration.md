@@ -250,7 +250,7 @@ export default {
 
 ## Initial Session State
 
-The manifest updater sets up the initial `SessionState` embedded in `SERVER-URI`. Proper initialization affects the entire session.
+The manifest updater (or master steering server) sets up the initial `SessionState` via the `encode_initial_state` WASM function. This function both returns the base64-encoded state for embedding in `SERVER-URI` and stores the state on the edge server as fallback for client requests that arrive without an `_ss` parameter.
 
 ### Required Fields
 

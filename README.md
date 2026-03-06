@@ -97,7 +97,7 @@ This is the **edge steering server** from Figure 3 of [Implementing HLS/DASH Con
 ### Build & Test
 
 ```bash
-# Run all 101 Rust unit + integration tests
+# Run all 109 Rust unit + integration tests
 cargo test
 
 # Build WASM module
@@ -118,9 +118,11 @@ node scripts/server.mjs
 node scripts/server.mjs --port 8080
 ```
 
-The server loads the WASM module from `pkg/` and exposes all steering endpoints:
+The server loads the WASM module from `pkg/` and exposes all steering endpoints.
+A browser-based dev UI is available at `http://localhost:3001/` for interactive testing.
 
 ```
+  GET  /                       Dev UI (browser)
   GET  /steer[/hls|/dash]?...  Steering requests (player-facing)
   POST /control                Master control commands
   GET  /health                 Health check
@@ -156,7 +158,7 @@ See [Local Development](docs/deployment.md#local-development) for the full walkt
 Run the full end-to-end test suite against the live WASM server:
 
 ```bash
-# Run all 88 E2E tests (starts server automatically)
+# Run all 98 E2E tests (starts server automatically)
 ./scripts/run-tests.sh
 
 # Run everything: cargo tests + WASM rebuild + E2E tests
@@ -165,7 +167,7 @@ Run the full end-to-end test suite against the live WASM server:
 # Run individual test suites (server must be running)
 ./scripts/test-hls-session.sh       # 27 HLS client tests
 ./scripts/test-dash-session.sh      # 22 DASH client tests
-./scripts/test-control-plane.sh     # 39 control plane + QoE tests
+./scripts/test-control-plane.sh     # 49 control plane + QoE tests
 ```
 
 ---
@@ -192,7 +194,7 @@ apex-steering/
 ├── CLAUDE.md                  AI assistant context
 │
 ├── src/
-│   ├── lib.rs                 WASM entry points (4 exports)
+│   ├── lib.rs                 WASM entry points (5 exports), initial state storage
 │   ├── types.rs               All type definitions
 │   ├── state.rs               Session state encode/decode, query parsing
 │   ├── policy.rs              CDN selection policy engine
@@ -200,7 +202,7 @@ apex-steering/
 │   └── control.rs             Master-to-edge override handling
 │
 ├── tests/
-│   └── integration.rs         10 end-to-end integration tests
+│   └── integration.rs         12 end-to-end integration tests
 │
 ├── wrappers/
 │   ├── akamai/                EdgeWorkers (primary target)
@@ -209,11 +211,12 @@ apex-steering/
 │   └── fastly/                Compute@Edge
 │
 ├── scripts/
-│   ├── server.mjs             Local dev server (loads WASM, serves HTTP)
+│   ├── server.mjs             Local dev server (loads WASM, serves HTTP + dev UI)
+│   ├── ui.html                Browser-based dev UI (served at /)
 │   ├── run-tests.sh           Test orchestrator (--build, --cargo, --all)
 │   ├── test-hls-session.sh    27 HLS client E2E tests
 │   ├── test-dash-session.sh   22 DASH client E2E tests
-│   └── test-control-plane.sh  39 control plane + QoE E2E tests
+│   └── test-control-plane.sh  49 control plane + QoE E2E tests
 │
 ├── docs/                      Documentation
 │   ├── architecture.md
@@ -246,25 +249,25 @@ apex-steering/
 
 ## Test Coverage
 
-**189 tests total** (101 Rust + 88 E2E), all passing.
+**207 tests total** (109 Rust + 98 E2E), all passing.
 
-### Rust Tests (101)
+### Rust Tests (109)
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
 | `state.rs` | 30 | Encode/decode roundtrips, query parsing, URL decoding, RELOAD-URI construction |
-| `policy.rs` | 24 | Priority logic, master overrides, pathway exclusions, QoE optimization |
+| `policy.rs` | 28 | Priority logic, master overrides, pathway exclusions, QoE optimization, master precedence over client state |
 | `control.rs` | 19 | Command processing, generation idempotency, JSON deserialization |
-| `response.rs` | 18 | Response building, state propagation, token passthrough |
-| `integration.rs` | 10 | Full session lifecycles, QoE switching, disaster recovery, concurrent viewers |
+| `response.rs` | 20 | Response building, state propagation, token passthrough, override persistence in RELOAD-URI |
+| `integration.rs` | 12 | Full session lifecycles, QoE switching, disaster recovery, concurrent viewers, multi-hop override persistence |
 
-### E2E Tests (88)
+### E2E Tests (98)
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
 | HLS Sessions | 27 | State encoding, multi-request sessions, Akamai token passthrough, protocol auto-detection, JSON format validation |
 | DASH Sessions | 22 | queryBeforeStart, double-quoted pathways, SERVICE-LOCATION-PRIORITY format, token passthrough |
-| Control Plane + QoE | 39 | set/exclude/clear commands, stale rejection, QoE demotion, threshold edge cases, full degradation cycle, master+QoE interaction, disaster recovery |
+| Control Plane + QoE | 49 | set/exclude/clear commands, stale rejection, QoE demotion, threshold edge cases, full degradation cycle, master+QoE interaction, disaster recovery, master override precedence across multi-hop HLS and DASH sessions |
 
 ---
 

@@ -360,6 +360,8 @@ Generation numbers provide **idempotent, replay-safe** command processing:
 │  │ handle_steering_request(req, ovr, cfg, path)     │   │
 │  │   -> SteeringResponse JSON                       │   │
 │  │   Main entry point for all steering requests      │   │
+│  │   Falls back to stored initial state when _ss     │   │
+│  │   is absent from the client request               │   │
 │  └──────────────────────────────────────────────────┘   │
 │                                                          │
 │  ┌──────────────────────────────────────────────────┐   │
@@ -377,7 +379,13 @@ Generation numbers provide **idempotent, replay-safe** command processing:
 │  ┌──────────────────────────────────────────────────┐   │
 │  │ encode_initial_state(state)                      │   │
 │  │   -> base64 string                               │   │
-│  │   For manifest updater to set initial SERVER-URI  │   │
+│  │   Stores state on edge server + returns encoded   │   │
+│  │   string for manifest updater SERVER-URI          │   │
+│  └──────────────────────────────────────────────────┘   │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │ reset_initial_state()                            │   │
+│  │   Clears stored initial state (for reset ops)    │   │
 │  └──────────────────────────────────────────────────┘   │
 │                                                          │
 │  Internal modules:                                       │

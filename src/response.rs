@@ -369,6 +369,87 @@ mod tests {
         assert_eq!(decoded.throughput_map[0].1, 1_000_000);
     }
 
+    // ─── Master override persisted in RELOAD-URI state ─────────────────
+
+    #[test]
+    fn override_priorities_persisted_in_reload_uri_state() {
+        // Client state has ["cdn-a", "cdn-b"] but master override says ["cdn-b", "cdn-a"].
+        // The state encoded in RELOAD-URI must carry the override priorities,
+        // NOT the client's original priorities.
+        let state = SessionState {
+            priorities: vec!["cdn-a".into(), "cdn-b".into()],
+            override_gen: 0,
+            ..Default::default()
+        };
+        let overrides = OverrideState {
+            priority_override: Some(PriorityOverride {
+                priorities: vec!["cdn-b".into(), "cdn-a".into()],
+                generation: 1,
+                ttl_override: None,
+            }),
+            generation: 1,
+            ..Default::default()
+        };
+        let resp = build_response(
+            Protocol::Hls,
+            &state,
+            Some("cdn-a"),
+            Some(5_000_000),
+            &overrides,
+            &PolicyConfig::default(),
+            "/steer",
+            &[],
+        )
+        .unwrap();
+
+        // Decode state from RELOAD-URI
+        let ss_param = resp.reload_uri.unwrap().split("_ss=").nth(1).unwrap().to_string();
+        let decoded = crate::state::decode_state(&ss_param).unwrap();
+
+        // State must reflect master's priorities, not the client's original
+        assert_eq!(decoded.priorities, vec!["cdn-b", "cdn-a"]);
+        // Override generation must be tracked
+        assert_eq!(decoded.override_gen, 1);
+    }
+
+    #[test]
+    fn newer_override_updates_state_priorities_and_gen() {
+        // Client state came from a previous override (gen=1, priorities=["cdn-b","cdn-a"]).
+        // Master has pushed a newer override (gen=2, priorities=["cdn-c","cdn-a"]).
+        // RELOAD-URI state must reflect the NEW override.
+        let state = SessionState {
+            priorities: vec!["cdn-b".into(), "cdn-a".into()],
+            override_gen: 1,
+            ..Default::default()
+        };
+        let overrides = OverrideState {
+            priority_override: Some(PriorityOverride {
+                priorities: vec!["cdn-c".into(), "cdn-a".into()],
+                generation: 2,
+                ttl_override: None,
+            }),
+            generation: 2,
+            ..Default::default()
+        };
+        let resp = build_response(
+            Protocol::Hls,
+            &state,
+            None,
+            None,
+            &overrides,
+            &PolicyConfig::default(),
+            "/steer",
+            &[],
+        )
+        .unwrap();
+
+        let ss_param = resp.reload_uri.unwrap().split("_ss=").nth(1).unwrap().to_string();
+        let decoded = crate::state::decode_state(&ss_param).unwrap();
+
+        assert_eq!(decoded.priorities, vec!["cdn-c", "cdn-a"]);
+        assert_eq!(decoded.override_gen, 2);
+    }
+
     // ─── JSON serialization ─────────────────────────────────────────────
 
     #[test]

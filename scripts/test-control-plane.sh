@@ -439,6 +439,110 @@ assert_contains "health check has engine" "$HEALTH" '"engine":"apex-steering"'
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Test 15: Master override takes precedence over client state across hops
+# ═══════════════════════════════════════════════════════════════════════════════
+
+bold "── Test 15: Master override takes precedence over client state ──"
+echo ""
+
+# Reset
+curl -s -X POST "$BASE/reset" > /dev/null
+
+# Request 1: No override — use client state priorities
+RESP_S1=$(curl -s "$BASE/steer/hls?_ss=$SS&_HLS_pathway=cdn-a&_HLS_throughput=5000000")
+PRI_S1=$(echo "$RESP_S1" | python3 -c "import sys,json; print(json.load(sys.stdin)['PATHWAY-PRIORITY'][0])")
+assert_eq "hop 1: client state priorities (cdn-a)" "cdn-a" "$PRI_S1"
+
+# Master pushes override
+curl -s -X POST "$BASE/control" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "set_priorities",
+    "region": null,
+    "priorities": ["cdn-c", "cdn-b"],
+    "generation": 1,
+    "ttl_override": 20
+  }' > /dev/null
+
+# Request 2: Client sends RELOAD-URI from request 1 (old state), override must apply
+Q_S2=$(extract_reload_query "$RESP_S1")
+RESP_S2=$(curl -s "$BASE/steer/hls?${Q_S2}&_HLS_pathway=cdn-a&_HLS_throughput=5000000")
+PRI_S2=$(extract_json "$RESP_S2" '["PATHWAY-PRIORITY"]')
+TTL_S2=$(extract_json "$RESP_S2" '["TTL"]')
+
+assert_eq "hop 2: master override applied [cdn-c, cdn-b]" '["cdn-c", "cdn-b"]' "$PRI_S2"
+assert_eq "hop 2: master TTL override (20)" "20" "$TTL_S2"
+
+# Request 3: Client sends RELOAD-URI from request 2 — override STILL applied
+Q_S3=$(extract_reload_query "$RESP_S2")
+RESP_S3=$(curl -s "$BASE/steer/hls?${Q_S3}&_HLS_pathway=cdn-c&_HLS_throughput=6000000")
+PRI_S3=$(extract_json "$RESP_S3" '["PATHWAY-PRIORITY"]')
+TTL_S3=$(extract_json "$RESP_S3" '["TTL"]')
+
+assert_eq "hop 3: master override persists [cdn-c, cdn-b]" '["cdn-c", "cdn-b"]' "$PRI_S3"
+assert_eq "hop 3: master TTL override still active (20)" "20" "$TTL_S3"
+
+# Master pushes NEW override with different priorities
+curl -s -X POST "$BASE/control" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "set_priorities",
+    "region": null,
+    "priorities": ["cdn-b", "cdn-a"],
+    "generation": 2,
+    "ttl_override": 15
+  }' > /dev/null
+
+# Request 4: Client sends RELOAD-URI from request 3 — NEW override applied
+Q_S4=$(extract_reload_query "$RESP_S3")
+RESP_S4=$(curl -s "$BASE/steer/hls?${Q_S4}&_HLS_pathway=cdn-c&_HLS_throughput=6000000")
+PRI_S4=$(extract_json "$RESP_S4" '["PATHWAY-PRIORITY"]')
+TTL_S4=$(extract_json "$RESP_S4" '["TTL"]')
+
+assert_eq "hop 4: new master override applied [cdn-b, cdn-a]" '["cdn-b", "cdn-a"]' "$PRI_S4"
+assert_eq "hop 4: new master TTL override (15)" "15" "$TTL_S4"
+
+echo ""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Test 16: Master override with DASH protocol across hops
+# ═══════════════════════════════════════════════════════════════════════════════
+
+bold "── Test 16: Master override with DASH across hops ──"
+echo ""
+
+# Reset
+curl -s -X POST "$BASE/reset" > /dev/null
+
+# Master pushes override BEFORE first request
+curl -s -X POST "$BASE/control" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "set_priorities",
+    "region": null,
+    "priorities": ["cdn-c", "cdn-a"],
+    "generation": 1,
+    "ttl_override": 25
+  }' > /dev/null
+
+# DASH request with client state that has different priorities
+RESP_D1=$(curl -s "$BASE/steer/dash?_ss=$SS&_DASH_pathway=cdn-a&_DASH_throughput=5000000")
+PRI_D1=$(extract_json "$RESP_D1" '["SERVICE-LOCATION-PRIORITY"]')
+TTL_D1=$(extract_json "$RESP_D1" '["TTL"]')
+
+assert_eq "DASH hop 1: master override applied" '["cdn-c", "cdn-a"]' "$PRI_D1"
+assert_eq "DASH hop 1: master TTL (25)" "25" "$TTL_D1"
+
+# Follow-up DASH request using RELOAD-URI — still overridden
+Q_D2=$(extract_reload_query "$RESP_D1")
+RESP_D2=$(curl -s "$BASE/steer/dash?${Q_D2}&_DASH_pathway=cdn-c&_DASH_throughput=6000000")
+PRI_D2=$(extract_json "$RESP_D2" '["SERVICE-LOCATION-PRIORITY"]')
+
+assert_eq "DASH hop 2: master override persists" '["cdn-c", "cdn-a"]' "$PRI_D2"
+
+echo ""
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Summary
 # ═══════════════════════════════════════════════════════════════════════════════
 

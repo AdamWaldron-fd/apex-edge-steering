@@ -43,6 +43,7 @@ async function loadWasm() {
     parse_request: glue.parse_request,
     apply_control_command: glue.apply_control_command,
     encode_initial_state: glue.encode_initial_state,
+    reset_initial_state: glue.reset_initial_state,
   };
 }
 
@@ -78,6 +79,12 @@ function respond(res, status, body, extraHeaders = {}) {
 }
 
 async function createHandler(wasm) {
+  // Load dev UI HTML once at startup.
+  let uiHtml = '';
+  try {
+    uiHtml = await readFile(join(__dirname, 'ui.html'), 'utf8');
+  } catch { /* no UI file — skip */ }
+
   return async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const path = url.pathname;
@@ -91,6 +98,12 @@ async function createHandler(wasm) {
         'Access-Control-Allow-Headers': 'Content-Type',
       });
       return res.end();
+    }
+
+    // Dev UI
+    if (path === '/' && uiHtml) {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      return res.end(uiHtml);
     }
 
     // Health check
@@ -141,7 +154,8 @@ async function createHandler(wasm) {
     if (path === '/reset' && req.method === 'POST') {
       overridesJson = '';
       configJson = '';
-      return respond(res, 200, { status: 'reset', overrides: null, config: null });
+      wasm.reset_initial_state();
+      return respond(res, 200, { status: 'reset', overrides: null, config: null, initial_state: null });
     }
 
     // Steering: GET /steer/**
@@ -183,10 +197,12 @@ const server = createServer((req, res) => handler(req, res).catch((err) => {
 server.listen(PORT, () => {
   console.log(`\napex-steering dev server listening on http://localhost:${PORT}`);
   console.log(`\nEndpoints:`);
+  console.log(`  GET  /                       Dev UI`);
   console.log(`  GET  /steer[/hls|/dash]?...  Steering requests`);
   console.log(`  POST /control                Master control commands`);
   console.log(`  GET  /health                 Health check`);
   console.log(`  POST /config                 Update policy config`);
   console.log(`  POST /encode-state           Encode initial session state`);
-  console.log(`  POST /reset                  Reset overrides and config\n`);
+  console.log(`  POST /reset                  Reset overrides and config`);
+  console.log(`\n  Dev UI: http://localhost:${PORT}/\n`);
 });

@@ -215,7 +215,7 @@ player.load('https://cdn.example.com/manifest.mpd');
 
 ## Initial State Setup
 
-The manifest updater needs to encode initial session state into the `SERVER-URI` or `<ContentSteering>` URL. Use the `encode_initial_state` WASM function:
+The manifest updater (or master steering server) needs to encode initial session state into the `SERVER-URI` or `<ContentSteering>` URL. Use the `encode_initial_state` WASM function, which both returns the encoded string and stores the state on the edge server as fallback for requests without `_ss`:
 
 ### Node.js Example (Manifest Updater)
 

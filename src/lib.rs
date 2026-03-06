@@ -4,9 +4,18 @@ mod response;
 mod state;
 pub mod types;
 
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 use types::{ControlCommand, OverrideState, Protocol, SessionState, SteeringRequest};
+
+// ─── Initial State Storage ──────────────────────────────────────────────────
+
+thread_local! {
+    /// Initial session state set by the master steering server via encode_initial_state.
+    /// Used as fallback when a client request has no _ss parameter.
+    static INITIAL_STATE: RefCell<Option<SessionState>> = RefCell::new(None);
+}
 
 // ─── WASM Exports ────────────────────────────────────────────────────────────
 
@@ -46,7 +55,11 @@ pub fn handle_steering_request(
             .map_err(|e| JsError::new(&format!("bad config: {e}")))?
     };
 
-    let session_state = request.session_state.unwrap_or_default();
+    // Use session state from request (_ss param). If absent, fall back to the
+    // initial state set by the master steering server via encode_initial_state.
+    let session_state = request.session_state.unwrap_or_else(|| {
+        INITIAL_STATE.with(|cell| cell.borrow().clone()).unwrap_or_default()
+    });
 
     let passthrough: Vec<(String, String)> = parse_passthrough(&request.raw_query);
 
@@ -119,12 +132,27 @@ pub fn apply_control_command(
 }
 
 /// Encode a session state into a base64 string for embedding in manifests.
-/// Used by the "manifest updater" to set initial state in SERVER-URI.
+/// Used by the master steering server to set initial state on the edge server.
+///
+/// This function both:
+/// 1. Returns the base64-encoded state string (for embedding in SERVER-URI)
+/// 2. Stores the state on the edge server as fallback for requests without `_ss`
 #[wasm_bindgen]
 pub fn encode_initial_state(state_json: &str) -> Result<String, JsError> {
     let state: SessionState = serde_json::from_str(state_json)
         .map_err(|e| JsError::new(&format!("bad state: {e}")))?;
+    INITIAL_STATE.with(|cell| {
+        *cell.borrow_mut() = Some(state.clone());
+    });
     state::encode_state(&state).map_err(|e| JsError::new(&e))
+}
+
+/// Clear the stored initial state. Used by platform wrappers for reset operations.
+#[wasm_bindgen]
+pub fn reset_initial_state() {
+    INITIAL_STATE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
 }
 
 // ─── Internal Helpers ────────────────────────────────────────────────────────
@@ -153,3 +181,22 @@ pub use control::apply_command;
 pub use policy::{evaluate, PolicyConfig};
 pub use response::build_response;
 pub use state::{decode_state, encode_state, parse_query};
+
+/// Set the initial state for Rust consumers (non-WASM equivalent of encode_initial_state storage).
+pub fn set_initial_state(state: &SessionState) {
+    INITIAL_STATE.with(|cell| {
+        *cell.borrow_mut() = Some(state.clone());
+    });
+}
+
+/// Clear the initial state for Rust consumers (non-WASM equivalent of reset_initial_state).
+pub fn clear_initial_state() {
+    INITIAL_STATE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+}
+
+/// Get the stored initial state (for testing).
+pub fn get_initial_state() -> Option<SessionState> {
+    INITIAL_STATE.with(|cell| cell.borrow().clone())
+}

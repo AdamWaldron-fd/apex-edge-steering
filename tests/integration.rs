@@ -29,6 +29,11 @@ fn simulate_request(
         None => None,
     };
 
+    // Mirror WASM handler: fall back to stored initial state when _ss is absent.
+    let session_state = session_state.unwrap_or_else(|| {
+        get_initial_state().unwrap_or_default()
+    });
+
     let passthrough: Vec<(String, String)> = query
         .split('&')
         .filter(|s| !s.is_empty())
@@ -47,7 +52,7 @@ fn simulate_request(
 
     let resp = build_response(
         protocol,
-        &session_state.unwrap_or_default(),
+        &session_state,
         parsed.pathway.as_deref(),
         parsed.throughput,
         overrides,
@@ -75,7 +80,16 @@ fn hls_full_session_lifecycle() {
     let config = PolicyConfig::default();
     let overrides = OverrideState::default();
 
-    // ── Request 1: Initial request (no session state, no pathway) ────────
+    // ── Master encodes initial state (sets priorities on edge server) ────
+    let initial_state = SessionState {
+        priorities: vec!["CDN-A".into(), "CDN-B".into()],
+        min_bitrate: 500_000,
+        max_bitrate: 4_000_000,
+        ..Default::default()
+    };
+    set_initial_state(&initial_state);
+
+    // ── Request 1: Initial request (no _ss yet, uses stored initial state)
     // Simulates the first call after manifest load with:
     //   SERVER-URI="/steer?session=abc123"
     let (resp1, json1) = simulate_request(
@@ -89,6 +103,7 @@ fn hls_full_session_lifecycle() {
     assert_eq!(resp1.version, 1);
     assert_eq!(resp1.ttl, 300);
     assert!(resp1.pathway_priority.is_some());
+    assert_eq!(resp1.pathway_priority.as_ref().unwrap(), &vec!["CDN-A", "CDN-B"]);
     assert!(resp1.service_location_priority.is_none());
     assert!(resp1.reload_uri.is_some());
 
@@ -135,6 +150,13 @@ fn dash_full_session_lifecycle() {
     let config = PolicyConfig::default();
     let overrides = OverrideState::default();
 
+    // ── Master encodes initial state ────────────────────────────────────
+    let initial_state = SessionState {
+        priorities: vec!["alpha".into(), "beta".into()],
+        ..Default::default()
+    };
+    set_initial_state(&initial_state);
+
     // ── Request 1: queryBeforeStart=true, no pathway yet ─────────────────
     let (resp1, json1) = simulate_request(
         "token=234523452",
@@ -146,6 +168,7 @@ fn dash_full_session_lifecycle() {
 
     assert_eq!(resp1.version, 1);
     assert!(resp1.service_location_priority.is_some());
+    assert_eq!(resp1.service_location_priority.as_ref().unwrap(), &vec!["alpha", "beta"]);
     assert!(resp1.pathway_priority.is_none());
 
     let v: serde_json::Value = serde_json::from_str(&json1).unwrap();
@@ -298,7 +321,14 @@ fn akamai_token_passthrough_full_session() {
     let overrides = OverrideState::default();
     let base = "/steer";
 
-    // Initial request with Akamai-style tokens
+    // ── Master encodes initial state ────────────────────────────────────
+    let initial_state = SessionState {
+        priorities: vec!["CDN-A".into(), "CDN-B".into()],
+        ..Default::default()
+    };
+    set_initial_state(&initial_state);
+
+    // Initial request with Akamai-style tokens (no _ss, uses stored initial state)
     let q1 = "start=1772770805&end=1772857805&userId=93334984\
               &hashParam=a7614ed13747de0802fdd8ff5cd440b4";
 
@@ -342,7 +372,14 @@ fn dash_with_steering_token_and_session() {
     let config = PolicyConfig::default();
     let overrides = OverrideState::default();
 
-    // Simulates the DASH-IF Annex A example
+    // ── Master encodes initial state ────────────────────────────────────
+    let initial_state = SessionState {
+        priorities: vec!["alpha".into(), "beta".into()],
+        ..Default::default()
+    };
+    set_initial_state(&initial_state);
+
+    // Simulates the DASH-IF Annex A example (no _ss, uses stored initial state)
     let q1 = "token=234523452";
     let (resp1, _) = simulate_request(q1, "dash", &overrides, &config, "/steer");
 
@@ -432,6 +469,122 @@ fn control_command_json_roundtrip() {
     let ov = overrides_back.priority_override.unwrap();
     assert_eq!(ov.priorities, vec!["cdn-b", "cdn-a"]);
     assert_eq!(ov.ttl_override, Some(15));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Integration Test: Master override persists across multi-hop session
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn master_override_persists_across_multi_hop() {
+    let config = PolicyConfig::default();
+    let mut overrides = OverrideState::default();
+
+    // Initial session state: cdn-a is primary
+    let initial_state = SessionState {
+        priorities: vec!["cdn-a".into(), "cdn-b".into(), "cdn-c".into()],
+        min_bitrate: 1_000_000,
+        max_bitrate: 8_000_000,
+        ..Default::default()
+    };
+    let encoded = encode_state(&initial_state).unwrap();
+
+    // ── Request 1: Before any override — client state priorities used ────
+    let q1 = format!("_ss={encoded}&_HLS_pathway=cdn-a&_HLS_throughput=5000000");
+    let (resp1, _) = simulate_request(&q1, "hls", &overrides, &config, "/steer");
+    assert_eq!(resp1.pathway_priority.as_ref().unwrap()[0], "cdn-a");
+    assert_eq!(resp1.ttl, 300);
+
+    // ── Master pushes override: force cdn-c as primary ───────────────────
+    apply_command(&mut overrides, &ControlCommand::SetPriorities {
+        region: None,
+        priorities: vec!["cdn-c".into(), "cdn-b".into(), "cdn-a".into()],
+        generation: 1,
+        ttl_override: Some(30),
+    });
+
+    // ── Request 2: Client uses RELOAD-URI from request 1 — override applied
+    let q2 = format!(
+        "{}&_HLS_pathway=cdn-a&_HLS_throughput=5000000",
+        extract_query(resp1.reload_uri.as_ref().unwrap())
+    );
+    let (resp2, _) = simulate_request(&q2, "hls", &overrides, &config, "/steer");
+    assert_eq!(resp2.pathway_priority.as_ref().unwrap()[0], "cdn-c");
+    assert_eq!(resp2.ttl, 30);
+
+    // ── Request 3: Client uses RELOAD-URI from request 2 — override STILL applied
+    let q3 = format!(
+        "{}&_HLS_pathway=cdn-c&_HLS_throughput=6000000",
+        extract_query(resp2.reload_uri.as_ref().unwrap())
+    );
+    let (resp3, _) = simulate_request(&q3, "hls", &overrides, &config, "/steer");
+    assert_eq!(resp3.pathway_priority.as_ref().unwrap()[0], "cdn-c");
+    assert_eq!(resp3.ttl, 30);
+
+    // Verify state in RELOAD-URI carries override priorities
+    let ss_encoded = extract_query(resp3.reload_uri.as_ref().unwrap())
+        .split("_ss=").nth(1).unwrap().split('&').next().unwrap();
+    let state = decode_state(ss_encoded).unwrap();
+    assert_eq!(state.priorities[0], "cdn-c");
+    assert_eq!(state.override_gen, 1);
+
+    // ── Master pushes NEW override gen=2 ─────────────────────────────────
+    apply_command(&mut overrides, &ControlCommand::SetPriorities {
+        region: None,
+        priorities: vec!["cdn-b".into(), "cdn-a".into()],
+        generation: 2,
+        ttl_override: Some(15),
+    });
+
+    // ── Request 4: Client uses RELOAD-URI from request 3 — NEW override applied
+    let q4 = format!(
+        "{}&_HLS_pathway=cdn-c&_HLS_throughput=6000000",
+        extract_query(resp3.reload_uri.as_ref().unwrap())
+    );
+    let (resp4, _) = simulate_request(&q4, "hls", &overrides, &config, "/steer");
+    assert_eq!(
+        resp4.pathway_priority.unwrap(),
+        vec!["cdn-b", "cdn-a"]
+    );
+    assert_eq!(resp4.ttl, 15);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Integration Test: Master override wins even when client state has same gen
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn master_override_applied_when_client_state_has_equal_override_gen() {
+    let config = PolicyConfig::default();
+
+    // Simulate: client processed override gen=1 on a previous request,
+    // state now has override_gen=1. The SAME override (gen=1) is still
+    // active on the edge. It must still be applied.
+    let state = SessionState {
+        priorities: vec!["cdn-b".into(), "cdn-a".into()], // from the override
+        override_gen: 1,
+        min_bitrate: 1_000_000,
+        max_bitrate: 8_000_000,
+        ..Default::default()
+    };
+    let encoded = encode_state(&state).unwrap();
+
+    let overrides = OverrideState {
+        priority_override: Some(PriorityOverride {
+            priorities: vec!["cdn-b".into(), "cdn-a".into()],
+            generation: 1,
+            ttl_override: Some(30),
+        }),
+        generation: 1,
+        ..Default::default()
+    };
+
+    let q = format!("_ss={encoded}&_HLS_pathway=cdn-b&_HLS_throughput=5000000");
+    let (resp, _) = simulate_request(&q, "hls", &overrides, &config, "/steer");
+
+    // Override TTL should still be applied (proves override is active)
+    assert_eq!(resp.pathway_priority.unwrap(), vec!["cdn-b", "cdn-a"]);
+    assert_eq!(resp.ttl, 30);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

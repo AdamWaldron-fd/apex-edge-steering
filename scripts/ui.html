@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>apex-steering dev</title>
+<style>
+  :root { --bg: #0d1117; --surface: #161b22; --border: #30363d; --text: #e6edf3;
+    --dim: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    --orange: #d29922; --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--mono); font-size: 13px; background: var(--bg); color: var(--text);
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 1px;
+    height: 100vh; background-color: var(--border); }
+  header { grid-column: 1 / -1; background: var(--surface); padding: 10px 16px;
+    display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 14px; font-weight: 600; }
+  header .status { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  header .dot.ok { background: var(--green); }
+  header .dot.err { background: var(--red); }
+  header .actions { margin-left: auto; display: flex; gap: 8px; }
+  .panel { background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+  .panel-hdr { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px;
+    font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .5px;
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .panel-hdr select, .panel-hdr input { background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--mono); font-size: 12px; padding: 3px 6px; border-radius: 4px; }
+  .panel-hdr select { cursor: pointer; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+  .form-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .form-row label { width: 110px; flex-shrink: 0; color: var(--dim); text-align: right; }
+  .form-row input, .form-row select { flex: 1; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--mono); font-size: 12px; padding: 5px 8px; border-radius: 4px; }
+  .form-row input:focus, .form-row select:focus { outline: none; border-color: var(--accent); }
+  textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 12px; padding: 8px; border-radius: 4px; resize: vertical; }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  button { background: var(--accent); color: #000; border: none; padding: 5px 14px;
+    font-family: var(--mono); font-size: 12px; font-weight: 600; border-radius: 4px;
+    cursor: pointer; white-space: nowrap; }
+  button:hover { opacity: .85; }
+  button.secondary { background: var(--border); color: var(--text); }
+  button.secondary:hover { background: #484f58; }
+  button.danger { background: var(--red); color: #fff; }
+  .json-out { background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+    font-size: 12px; line-height: 1.5; min-height: 60px; }
+  .json-out .key { color: var(--accent); }
+  .json-out .str { color: var(--green); }
+  .json-out .num { color: var(--orange); }
+  .json-out .bool { color: var(--red); }
+  .json-out .null { color: var(--dim); }
+  .json-out.err { border-color: var(--red); color: var(--red); }
+  .sep { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px;
+    font-weight: 600; }
+  .badge.hls { background: #1f6feb33; color: var(--accent); }
+  .badge.dash { background: #3fb95033; color: var(--green); }
+  .log { font-size: 11px; }
+  .log-entry { padding: 3px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
+  .log-entry .method { width: 40px; font-weight: 600; flex-shrink: 0; }
+  .log-entry .method.get { color: var(--green); }
+  .log-entry .method.post { color: var(--orange); }
+  .log-entry .path { color: var(--accent); flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .log-entry .ms { color: var(--dim); flex-shrink: 0; }
+  .log-entry .code { flex-shrink: 0; font-weight: 600; }
+  .log-entry .code.ok { color: var(--green); }
+  .log-entry .code.err { color: var(--red); }
+  .tabs { display: flex; gap: 0; }
+  .tab { padding: 6px 14px; cursor: pointer; border-bottom: 2px solid transparent;
+    color: var(--dim); font-size: 12px; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .session-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .session-bar .reload-uri { flex: 1; min-width: 200px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px;
+    color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>apex-steering</h1>
+  <div class="status"><div class="dot" id="health-dot"></div><span id="health-text">checking...</span></div>
+  <div class="actions">
+    <button class="secondary" onclick="checkHealth()">Health</button>
+    <button class="danger" onclick="resetServer()">Reset</button>
+  </div>
+</header>
+
+<!-- Left: Request Builder -->
+<div class="panel">
+  <div class="panel-hdr">
+    <div class="tabs">
+      <div class="tab active" data-tab="steer" onclick="switchTab(this)">Steering</div>
+      <div class="tab" data-tab="control" onclick="switchTab(this)">Control</div>
+      <div class="tab" data-tab="config" onclick="switchTab(this)">Config</div>
+      <div class="tab" data-tab="encode" onclick="switchTab(this)">Encode</div>
+    </div>
+  </div>
+  <div class="panel-body">
+
+    <!-- Steering Tab -->
+    <div class="tab-content active" id="tab-steer">
+      <div class="form-row">
+        <label>Protocol</label>
+        <select id="s-proto" onchange="updateProtoLabels()">
+          <option value="hls">HLS</option>
+          <option value="dash">DASH</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label id="s-pw-label">_HLS_pathway</label>
+        <input id="s-pathway" placeholder="cdn-a">
+      </div>
+      <div class="form-row">
+        <label id="s-tp-label">_HLS_throughput</label>
+        <input id="s-throughput" type="number" placeholder="5000000" value="5000000">
+      </div>
+      <div class="form-row">
+        <label>_ss (state)</label>
+        <input id="s-ss" placeholder="(auto from RELOAD-URI or encode)">
+      </div>
+      <div class="form-row">
+        <label>Passthrough</label>
+        <input id="s-pass" placeholder="token=abc&userId=123">
+      </div>
+      <hr class="sep">
+      <div class="session-bar">
+        <span style="color:var(--dim)">RELOAD-URI:</span>
+        <div class="reload-uri" id="reload-uri">none</div>
+        <button class="secondary" onclick="useReloadUri()" title="Load _ss from last RELOAD-URI">Use</button>
+        <button class="secondary" onclick="clearSession()">Clear</button>
+      </div>
+      <button onclick="sendSteering()">Send Steering Request</button>
+    </div>
+
+    <!-- Control Tab -->
+    <div class="tab-content" id="tab-control">
+      <div class="form-row">
+        <label>Command</label>
+        <select id="c-type" onchange="updateControlForm()">
+          <option value="set_priorities">set_priorities</option>
+          <option value="exclude_pathway">exclude_pathway</option>
+          <option value="clear_overrides">clear_overrides</option>
+        </select>
+      </div>
+      <div class="form-row" id="c-pri-row">
+        <label>Priorities</label>
+        <input id="c-priorities" placeholder="cdn-b, cdn-a" value="cdn-b, cdn-a">
+      </div>
+      <div class="form-row" id="c-pw-row" style="display:none">
+        <label>Pathway</label>
+        <input id="c-pathway" placeholder="cdn-a">
+      </div>
+      <div class="form-row">
+        <label>Generation</label>
+        <input id="c-gen" type="number" value="1">
+      </div>
+      <div class="form-row" id="c-ttl-row">
+        <label>TTL Override</label>
+        <input id="c-ttl" type="number" placeholder="(none)">
+      </div>
+      <div class="form-row">
+        <label>Region</label>
+        <input id="c-region" placeholder="(null = global)">
+      </div>
+      <hr class="sep">
+      <button onclick="sendControl()">Send Control Command</button>
+    </div>
+
+    <!-- Config Tab -->
+    <div class="tab-content" id="tab-config">
+      <div class="form-row">
+        <label>default_ttl</label>
+        <input id="cfg-ttl" type="number" value="300">
+      </div>
+      <div class="form-row">
+        <label>qoe_ttl</label>
+        <input id="cfg-qoe-ttl" type="number" value="10">
+      </div>
+      <div class="form-row">
+        <label>degrad. factor</label>
+        <input id="cfg-deg" type="number" step="0.1" value="1.2">
+      </div>
+      <div class="form-row">
+        <label>qoe_enabled</label>
+        <select id="cfg-qoe">
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </div>
+      <hr class="sep">
+      <div style="display:flex;gap:8px">
+        <button onclick="sendConfig()">Update Config</button>
+        <button class="secondary" onclick="getConfig()">Get Current</button>
+      </div>
+    </div>
+
+    <!-- Encode Tab -->
+    <div class="tab-content" id="tab-encode">
+      <div class="form-row">
+        <label>Priorities</label>
+        <input id="e-priorities" placeholder="cdn-a, cdn-b" value="cdn-a, cdn-b">
+      </div>
+      <div class="form-row">
+        <label>min_bitrate</label>
+        <input id="e-min" type="number" value="783322">
+      </div>
+      <div class="form-row">
+        <label>max_bitrate</label>
+        <input id="e-max" type="number" value="4530860">
+      </div>
+      <div class="form-row">
+        <label>Duration</label>
+        <input id="e-dur" type="number" value="0" placeholder="0 = live">
+      </div>
+      <hr class="sep">
+      <div style="display:flex;gap:8px">
+        <button onclick="encodeState()">Encode State</button>
+        <button class="secondary" onclick="encodeAndLoad()">Encode + Load _ss</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Right: Response / Log -->
+<div class="panel">
+  <div class="panel-hdr">
+    <div class="tabs">
+      <div class="tab active" data-tab="response" onclick="switchTab(this)">Response</div>
+      <div class="tab" data-tab="reqlog" onclick="switchTab(this)">Log <span id="log-count" style="color:var(--dim)">(0)</span></div>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="tab-content active" id="tab-response">
+      <div id="resp-meta" style="margin-bottom:8px;color:var(--dim);font-size:11px"></div>
+      <div class="json-out" id="resp-body">Send a request to see the response.</div>
+    </div>
+    <div class="tab-content" id="tab-reqlog">
+      <div class="log" id="log-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = location.origin;
+let lastReloadUri = null;
+let logEntries = [];
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+function $(id) { return document.getElementById(id); }
+
+function syntaxHL(json) {
+  return json.replace(/("(?:\\.|[^"\\])*")(\s*:)?|(\b\d+\.?\d*\b)|(\btrue\b|\bfalse\b)|(\bnull\b)/g,
+    (m, str, colon, num, bool, nul) => {
+      if (str) return colon
+        ? `<span class="key">${str}</span>${colon}`
+        : `<span class="str">${str}</span>`;
+      if (num) return `<span class="num">${num}</span>`;
+      if (bool) return `<span class="bool">${bool}</span>`;
+      if (nul) return `<span class="null">${nul}</span>`;
+      return m;
+    });
+}
+
+function showResp(data, status, ms, method, path) {
+  const pretty = JSON.stringify(data, null, 2);
+  $('resp-body').innerHTML = syntaxHL(pretty);
+  $('resp-body').className = 'json-out' + (status >= 400 ? ' err' : '');
+  $('resp-meta').textContent = `${method} ${path}  |  ${status}  |  ${ms}ms`;
+
+  if (data['RELOAD-URI']) {
+    lastReloadUri = data['RELOAD-URI'];
+    $('reload-uri').textContent = lastReloadUri;
+  }
+
+  addLog(method, path, status, ms);
+}
+
+function addLog(method, path, status, ms) {
+  logEntries.unshift({ method, path, status, ms });
+  $('log-count').textContent = `(${logEntries.length})`;
+  const el = $('log-list');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `
+    <span class="method ${method.toLowerCase()}">${method}</span>
+    <span class="path" title="${path}">${path}</span>
+    <span class="code ${status < 400 ? 'ok' : 'err'}">${status}</span>
+    <span class="ms">${ms}ms</span>`;
+  el.prepend(entry);
+}
+
+async function api(method, path, body) {
+  const t0 = performance.now();
+  const opts = { method };
+  if (body) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = typeof body === 'string' ? body : JSON.stringify(body);
+  }
+  const resp = await fetch(BASE + path, opts);
+  const ms = Math.round(performance.now() - t0);
+  const text = await resp.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  showResp(data, resp.status, ms, method, path);
+  return { data, status: resp.status };
+}
+
+function csvToArr(s) { return s.split(',').map(v => v.trim()).filter(Boolean); }
+
+// ─── Tabs ────────────────────────────────────────────────────────────
+
+function switchTab(el) {
+  const panel = el.closest('.panel');
+  panel.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  panel.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  panel.querySelector('#tab-' + el.dataset.tab).classList.add('active');
+}
+
+// ─── Protocol label update ────────────────────────────────────────────
+
+function updateProtoLabels() {
+  const proto = $('s-proto').value;
+  $('s-pw-label').textContent = proto === 'hls' ? '_HLS_pathway' : '_DASH_pathway';
+  $('s-tp-label').textContent = proto === 'hls' ? '_HLS_throughput' : '_DASH_throughput';
+}
+
+// ─── Control form toggle ──────────────────────────────────────────────
+
+function updateControlForm() {
+  const t = $('c-type').value;
+  $('c-pri-row').style.display = t === 'set_priorities' ? 'flex' : 'none';
+  $('c-pw-row').style.display = t === 'exclude_pathway' ? 'flex' : 'none';
+  $('c-ttl-row').style.display = t === 'set_priorities' ? 'flex' : 'none';
+}
+
+// ─── Steering ─────────────────────────────────────────────────────────
+
+async function sendSteering() {
+  const proto = $('s-proto').value;
+  const prefix = proto === 'hls' ? '_HLS_' : '_DASH_';
+  const parts = [];
+
+  const ss = $('s-ss').value.trim();
+  if (ss) parts.push('_ss=' + encodeURIComponent(ss));
+
+  const pw = $('s-pathway').value.trim();
+  if (pw) parts.push(prefix + 'pathway=' + encodeURIComponent(pw));
+
+  const tp = $('s-throughput').value.trim();
+  if (tp) parts.push(prefix + 'throughput=' + tp);
+
+  const pass = $('s-pass').value.trim();
+  if (pass) parts.push(pass);
+
+  const qs = parts.length ? '?' + parts.join('&') : '';
+  await api('GET', '/steer/' + proto + qs);
+}
+
+function useReloadUri() {
+  if (!lastReloadUri) return;
+  const qs = lastReloadUri.split('?')[1] || '';
+  const params = new URLSearchParams(qs);
+  $('s-ss').value = params.get('_ss') || '';
+}
+
+function clearSession() {
+  lastReloadUri = null;
+  $('reload-uri').textContent = 'none';
+  $('s-ss').value = '';
+}
+
+// ─── Control ──────────────────────────────────────────────────────────
+
+async function sendControl() {
+  const type = $('c-type').value;
+  const gen = parseInt($('c-gen').value) || 1;
+  const region = $('c-region').value.trim() || null;
+
+  let body = { type, region, generation: gen };
+
+  if (type === 'set_priorities') {
+    body.priorities = csvToArr($('c-priorities').value);
+    const ttl = $('c-ttl').value.trim();
+    body.ttl_override = ttl ? parseInt(ttl) : null;
+  } else if (type === 'exclude_pathway') {
+    body.pathway = $('c-pathway').value.trim();
+  }
+
+  await api('POST', '/control', body);
+
+  // auto-increment generation for convenience
+  $('c-gen').value = gen + 1;
+}
+
+// ─── Config ───────────────────────────────────────────────────────────
+
+async function sendConfig() {
+  const cfg = {
+    default_ttl: parseInt($('cfg-ttl').value),
+    qoe_ttl: parseInt($('cfg-qoe-ttl').value),
+    degradation_factor: parseFloat($('cfg-deg').value),
+    qoe_enabled: $('cfg-qoe').value === 'true',
+  };
+  await api('POST', '/config', cfg);
+}
+
+async function getConfig() {
+  await api('GET', '/config');
+}
+
+// ─── Encode State ────────────────────────────────────────────────────
+
+async function encodeState() {
+  const body = {
+    priorities: csvToArr($('e-priorities').value),
+    min_bitrate: parseInt($('e-min').value) || 0,
+    max_bitrate: parseInt($('e-max').value) || 0,
+    duration: parseInt($('e-dur').value) || 0,
+    position: 0, timestamp: 0, override_gen: 0,
+    throughput_map: [],
+  };
+  return await api('POST', '/encode-state', body);
+}
+
+async function encodeAndLoad() {
+  const { data, status } = await encodeState();
+  if (status === 200 && data.encoded) {
+    $('s-ss').value = data.encoded;
+    // also set pathway from the first priority
+    const pris = csvToArr($('e-priorities').value);
+    if (pris.length) $('s-pathway').value = pris[0];
+    // switch to steering tab
+    const steerTab = document.querySelector('[data-tab="steer"]');
+    switchTab(steerTab);
+  }
+}
+
+// ─── Health / Reset ──────────────────────────────────────────────────
+
+async function checkHealth() {
+  try {
+    const { data, status } = await api('GET', '/health');
+    $('health-dot').className = 'dot ' + (status === 200 ? 'ok' : 'err');
+    $('health-text').textContent = status === 200 ? 'connected' : 'error';
+  } catch {
+    $('health-dot').className = 'dot err';
+    $('health-text').textContent = 'offline';
+  }
+}
+
+async function resetServer() {
+  await api('POST', '/reset');
+  lastReloadUri = null;
+  $('reload-uri').textContent = 'none';
+  $('s-ss').value = '';
+  $('c-gen').value = '1';
+}
+
+// ─── Init ────────────────────────────────────────────────────────────
+
+checkHealth();
+</script>
+</body>
+</html>

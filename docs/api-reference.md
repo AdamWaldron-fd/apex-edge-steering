@@ -15,6 +15,7 @@ Complete reference for the HTTP endpoints and WASM module exports.
    - [parse_request](#parse_request)
    - [apply_control_command](#apply_control_command)
    - [encode_initial_state](#encode_initial_state)
+   - [reset_initial_state](#reset_initial_state)
 3. [TypeScript Declarations](#typescript-declarations)
 4. [JSON Schemas](#json-schemas)
 
@@ -182,7 +183,7 @@ Simple health check endpoint.
 
 ## WASM API
 
-The WASM module exports four functions via `wasm-bindgen`. All platform wrappers use these functions -- the JS layer is intentionally thin.
+The WASM module exports five functions via `wasm-bindgen`. All platform wrappers use these functions -- the JS layer is intentionally thin.
 
 ### handle_steering_request
 
@@ -306,7 +307,15 @@ overrides = apply_control_command(overrides, JSON.stringify({
 
 ### encode_initial_state
 
-Encodes a `SessionState` into a URL-safe base64 string for embedding in manifests. Used by the manifest updater component.
+Encodes a `SessionState` into a URL-safe base64 string for embedding in manifests. Called by the master steering server to set initial session state on the edge server.
+
+This function performs two actions:
+1. Returns the base64-encoded state string (for embedding in `SERVER-URI`)
+2. **Stores the state on the edge server** as fallback for client requests without `_ss`
+
+When `handle_steering_request` receives a request without an `_ss` parameter, it falls back to
+this stored initial state instead of using empty defaults. This ensures the first client request
+returns correct priorities even before the client has received a `RELOAD-URI`.
 
 ```
 encode_initial_state(state_json: string) -> string
@@ -332,8 +341,35 @@ const encoded = encode_initial_state(JSON.stringify({
   override_gen: 0,
 }));
 
+// The state is now stored on the edge server.
+// Subsequent requests to /steer without _ss will use these priorities.
+
 // Use in HLS manifest:
 // #EXT-X-CONTENT-STEERING:SERVER-URI="/steer?_ss=${encoded}",PATHWAY-ID="cdn-a"
+```
+
+---
+
+### reset_initial_state
+
+Clears the stored initial state set by `encode_initial_state`. After this call,
+requests without `_ss` will fall back to `SessionState::default()` (empty priorities).
+
+Used by platform wrappers for reset operations (e.g., the local dev server's `POST /reset`).
+
+```
+reset_initial_state()
+```
+
+**Returns:** Nothing.
+
+**Example:**
+
+```javascript
+// Clear stored initial state
+reset_initial_state();
+
+// Now requests without _ss will return empty priorities
 ```
 
 ---
@@ -371,8 +407,14 @@ export function apply_control_command(
 
 /**
  * Encode a SessionState into a base64 string for manifests.
+ * Also stores the state on the edge server as fallback for requests without _ss.
  */
 export function encode_initial_state(state_json: string): string;
+
+/**
+ * Clear the stored initial state.
+ */
+export function reset_initial_state(): void;
 ```
 
 ---

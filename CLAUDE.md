@@ -348,7 +348,7 @@ Revert to master-assigned defaults:
 
 ## WASM API Reference
 
-The WASM module exports four functions. All platform wrappers use these.
+The WASM module exports five functions. All platform wrappers use these.
 
 ### `handle_steering_request(request_json, overrides_json, config_json, base_path) -> string`
 
@@ -388,13 +388,29 @@ Applies a master server control command to the override state.
 ### `encode_initial_state(state_json) -> string`
 
 Encodes a `SessionState` into a base64 string for embedding in manifests.
-Used by the manifest updater component.
+Called by the master steering server (via `/encode-state`) to set initial session state.
+
+This function performs two actions:
+1. Returns the base64-encoded state string (for embedding in `SERVER-URI`)
+2. **Stores the state on the edge server** as fallback for requests without `_ss`
+
+When a client request arrives without an `_ss` parameter, `handle_steering_request` falls
+back to this stored initial state instead of using empty defaults.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `state_json` | `string` | JSON-serialized `SessionState` |
 
 **Returns:** URL-safe base64 string (no padding).
+
+### `reset_initial_state()`
+
+Clears the stored initial state set by `encode_initial_state`. After this call,
+requests without `_ss` will fall back to `SessionState::default()` (empty priorities).
+
+Used by platform wrappers for reset operations (e.g., the local dev server's `POST /reset`).
+
+**Returns:** Nothing.
 
 ### TypeScript Declarations
 
@@ -409,6 +425,7 @@ export function handle_steering_request(
 export function parse_request(query_string: string, protocol_hint: string): string;
 export function apply_control_command(overrides_json: string, command_json: string): string;
 export function encode_initial_state(state_json: string): string;
+export function reset_initial_state(): void;
 ```
 
 ---
@@ -571,7 +588,7 @@ respond(200, { 'Content-Type': 'application/json' }, responseJson);
 ```bash
 source "$HOME/.cargo/env"
 
-# Run all 101 Rust tests (91 unit + 10 integration)
+# Run all 109 Rust tests (97 unit + 12 integration)
 cargo test
 
 # Build WASM package for JS bundler environments
@@ -581,7 +598,7 @@ wasm-pack build --target bundler --release
 # Run local dev server
 node scripts/server.mjs --port 3001
 
-# Run all 88 E2E tests (starts server automatically)
+# Run all 98 E2E tests (starts server automatically)
 ./scripts/run-tests.sh
 
 # Run everything: cargo + WASM build + E2E
@@ -599,12 +616,15 @@ and size optimization (`opt-level = "s"`) handle binary optimization.
 ```
 scripts/
 |-- server.mjs              Local dev HTTP server (loads WASM from pkg/)
-|                            Endpoints: /steer, /control, /health, /encode-state, /config, /reset
+|                            Endpoints: /, /steer, /control, /health, /encode-state, /config, /reset
+|-- ui.html                  Browser-based dev UI (served at / by server.mjs)
+|                            Interactive testing for all endpoints: steering, control, config, encode
 |-- run-tests.sh             Orchestrator: starts server, runs all E2E suites, reports results
 |                            Flags: --build (rebuild WASM), --cargo (Rust tests only), --all
 |-- test-hls-session.sh      27 HLS client session tests (state encoding, multi-hop, tokens)
 |-- test-dash-session.sh     22 DASH client session tests (queryBeforeStart, quoted pathways)
-+-- test-control-plane.sh    39 control plane + QoE tests (overrides, exclusions, degradation)
++-- test-control-plane.sh    49 control plane + QoE tests (overrides, exclusions, degradation,
+                              master override precedence across multi-hop HLS + DASH sessions)
 ```
 
 ---
@@ -620,8 +640,10 @@ apex-steering/
 |-- .gitignore
 |
 |-- src/                        Rust core library
-|   |-- lib.rs                  WASM entry points (4 exported functions),
-|   |                           re-exports for Rust consumers, parse_passthrough()
+|   |-- lib.rs                  WASM entry points (5 exported functions),
+|   |                           INITIAL_STATE thread_local storage for master-set
+|   |                           initial session state, re-exports for Rust consumers,
+|   |                           parse_passthrough()
 |   |-- types.rs                All type definitions:
 |   |                             Protocol (Hls|Dash)
 |   |                             SteeringRequest, SteeringResponse
@@ -643,14 +665,15 @@ apex-steering/
 |                                 apply_command() -- processes ControlCommands
 |
 |-- tests/
-|   +-- integration.rs          End-to-end Rust integration tests (10 tests)
+|   +-- integration.rs          End-to-end Rust integration tests (12 tests)
 |
-|-- scripts/                    Local dev server and E2E test scripts
+|-- scripts/                    Local dev server, dev UI, and E2E test scripts
 |   |-- server.mjs              Node.js HTTP server loading WASM from pkg/
+|   |-- ui.html                 Browser-based dev UI (served at / by server.mjs)
 |   |-- run-tests.sh            Test orchestrator
 |   |-- test-hls-session.sh     HLS E2E tests (27 tests)
 |   |-- test-dash-session.sh    DASH E2E tests (22 tests)
-|   +-- test-control-plane.sh   Control plane + QoE E2E tests (39 tests)
+|   +-- test-control-plane.sh   Control plane + QoE E2E tests (49 tests)
 |
 |-- wrappers/                   Platform-specific JS wrappers
 |   |-- akamai/
@@ -683,9 +706,9 @@ apex-steering/
 
 ## Test Coverage
 
-**189 tests total** (101 Rust + 88 E2E) — all passing.
+**207 tests total** (109 Rust + 98 E2E) — all passing.
 
-### Rust Unit Tests (91)
+### Rust Unit Tests (97)
 
 **`state.rs` — 30 tests**
 - Encode/decode roundtrips: full state, default state, many pathways, special characters
@@ -699,22 +722,26 @@ apex-steering/
 - URL decoding: percent encoding, plus-as-space, DASH quotes, mixed hex case, truncated %
 - RELOAD-URI: with/without passthrough, state decodability, absolute base URLs, Akamai tokens
 
-**`policy.rs` — 24 tests**
+**`policy.rs` — 28 tests**
 - Basic: default priorities, single pathway, empty priorities
 - Format: HLS uses PATHWAY-PRIORITY, DASH uses SERVICE-LOCATION-PRIORITY
 - Master overrides: replaces priorities, stale override rejected, equal generation applied,
   TTL override used/absent
+- Master precedence: override replaces client state priorities, persists when client state
+  has equal override_gen, newer override replaces stale client state, works for DASH protocol
 - Exclusions: single, multiple, all (fallback), nonexistent (noop), combined with override
 - QoE: demotes degraded, no action when OK, exactly at threshold, just below threshold,
   disabled, min_bitrate=0, non-top pathway, single pathway, unknown pathway,
   custom degradation factor, custom TTL
 - Config: custom default TTL
 
-**`response.rs` — 18 tests**
+**`response.rs` — 20 tests**
 - HLS/DASH response building
 - State carried through RELOAD-URI: throughput map (update existing, add new),
   position advancement (by TTL, saturation at u64::MAX), override generation tracking,
   priorities match response
+- Master override persistence: override priorities persisted in RELOAD-URI state,
+  newer override updates both priorities and override_gen in state
 - Passthrough: Akamai tokens preserved, no throughput means no map update
 - JSON format: HLS has PATHWAY-PRIORITY not SERVICE-LOCATION-PRIORITY, and vice versa
 
@@ -726,7 +753,7 @@ apex-steering/
 - Sequencing: set then exclude then clear
 - JSON deserialization: all three command types
 
-### Rust Integration Tests (10)
+### Rust Integration Tests (12)
 
 | Test | Description |
 |------|-------------|
@@ -734,6 +761,8 @@ apex-steering/
 | `dash_full_session_lifecycle` | 2-request DASH session with queryBeforeStart pattern |
 | `qoe_triggered_cdn_switch` | Good throughput, degraded (CDN switch, TTL=10), recovered (TTL=300) |
 | `master_override_during_session` | Active session interrupted by master `set_priorities` |
+| `master_override_persists_across_multi_hop` | 4-request session: override applied, persists across hops, new override replaces old |
+| `master_override_applied_when_client_state_has_equal_override_gen` | Override with same generation as client state still applies (>= check) |
 | `disaster_recovery_exclude_cdn` | Exclude CDN during outage, clear when recovered |
 | `akamai_token_passthrough_full_session` | 3 requests verifying all 4 Akamai tokens persist |
 | `dash_with_steering_token_and_session` | DASH-IF Annex A example with token forwarding |
@@ -741,13 +770,13 @@ apex-steering/
 | `control_command_json_roundtrip` | JSON serialize, apply, serialize, deserialize |
 | `concurrent_viewers_independent_state` | Two viewers with different CDN assignments verified independent |
 
-### E2E HTTP Tests (88)
+### E2E HTTP Tests (98)
 
 | Suite | Tests | What It Validates |
 |-------|-------|-------------------|
 | `test-hls-session.sh` | 27 | HLS session lifecycle, state encoding, Akamai token passthrough, protocol auto-detection, JSON format |
 | `test-dash-session.sh` | 22 | DASH queryBeforeStart, quoted pathways, SERVICE-LOCATION-PRIORITY, token passthrough |
-| `test-control-plane.sh` | 39 | set/exclude/clear commands, stale rejection, QoE demotion + recovery + edge cases, master+QoE interaction, disaster recovery |
+| `test-control-plane.sh` | 49 | set/exclude/clear commands, stale rejection, QoE demotion + recovery + edge cases, master+QoE interaction, disaster recovery, master override precedence across multi-hop HLS + DASH sessions |
 
 ---
 

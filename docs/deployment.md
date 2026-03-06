@@ -41,13 +41,32 @@ node scripts/server.mjs --port 8080
 apex-steering dev server listening on http://localhost:3001
 
 Endpoints:
+  GET  /                       Dev UI
   GET  /steer[/hls|/dash]?...  Steering requests
   POST /control                Master control commands
   GET  /health                 Health check
   POST /config                 Update policy config
   POST /encode-state           Encode initial session state
   POST /reset                  Reset overrides and config
+
+  Dev UI: http://localhost:3001/
 ```
+
+### Dev UI
+
+Open `http://localhost:3001/` in a browser for interactive testing. The UI provides:
+
+- **Steering tab** — Build and send HLS/DASH steering requests. RELOAD-URI tracking lets you
+  follow a multi-hop session by clicking "Use" to load the `_ss` from the previous response.
+- **Control tab** — Send `set_priorities`, `exclude_pathway`, and `clear_overrides` commands
+  with auto-incrementing generation numbers.
+- **Config tab** — Read and update `PolicyConfig` (TTL, QoE settings) at runtime.
+- **Encode tab** — Encode initial session state and load it directly into the Steering tab.
+- **Response panel** — Syntax-highlighted JSON responses with status codes and timing.
+- **Log panel** — Rolling request log of all API calls.
+
+The UI is a single HTML file (`scripts/ui.html`) with zero dependencies, served directly by
+the dev server.
 
 ### Dev-Only Endpoints
 
@@ -55,10 +74,10 @@ The local server includes convenience endpoints not present in production wrappe
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/encode-state` | POST | Encode a `SessionState` JSON into a base64 `_ss` string. Simulates what the manifest updater does. |
+| `/encode-state` | POST | Encode a `SessionState` JSON into a base64 `_ss` string and store it on the edge server as fallback for requests without `_ss`. Simulates what the master steering server does. |
 | `/config` | POST | Update the `PolicyConfig` at runtime without restarting. |
 | `/config` | GET | Read the current policy config. |
-| `/reset` | POST | Clear all overrides and config back to defaults. |
+| `/reset` | POST | Clear all overrides, config, and stored initial state back to defaults. |
 
 ### Walkthrough: Complete HLS Session
 
@@ -199,7 +218,8 @@ curl -s -X POST http://localhost:3001/control \
 │  │    handle_steering_request()                           │   │
 │  │    parse_request()                                     │   │
 │  │    apply_control_command()                             │   │
-│  │    encode_initial_state()                              │   │
+│  │    encode_initial_state()  (also stores state)         │   │
+│  │    reset_initial_state()   (clears stored state)       │   │
 │  └───────────────────────────────────────────────────────┘   │
 │                                                               │
 │  In-memory state:                                             │
@@ -207,6 +227,7 @@ curl -s -X POST http://localhost:3001/control \
 │    configJson     (updated via POST /config)                  │
 │                                                               │
 │  Routes:                                                      │
+│    GET  /            → Dev UI (scripts/ui.html)                │
 │    GET  /steer/**    → parse_request + handle_steering_request│
 │    POST /control     → apply_control_command                  │
 │    GET  /health      → status + current overrides             │
@@ -225,7 +246,7 @@ Three test suites validate the full HTTP request/response cycle against the live
 ### Run All Tests
 
 ```bash
-# Start server, run all 88 E2E tests, stop server
+# Start server, run all 98 E2E tests, stop server
 ./scripts/run-tests.sh
 
 # Full pipeline: cargo tests + WASM build + E2E
@@ -242,7 +263,7 @@ With the server already running (`node scripts/server.mjs`):
 ```bash
 ./scripts/test-hls-session.sh http://localhost:3001     # 27 tests
 ./scripts/test-dash-session.sh http://localhost:3001     # 22 tests
-./scripts/test-control-plane.sh http://localhost:3001    # 39 tests
+./scripts/test-control-plane.sh http://localhost:3001    # 49 tests
 ```
 
 ### Test Suites
@@ -264,7 +285,7 @@ With the server already running (`node scripts/server.mjs`):
 - DASH response JSON format: `SERVICE-LOCATION-PRIORITY` present; `PATHWAY-PRIORITY` absent
 - Token passthrough for DASH sessions
 
-**Control Plane + QoE** (`test-control-plane.sh`) -- 39 tests:
+**Control Plane + QoE** (`test-control-plane.sh`) -- 49 tests:
 - `set_priorities`: command accepted, affects steering responses, TTL override
 - Stale command rejection: generation-based idempotency (equal and lower gen rejected)
 - `exclude_pathway`: CDN removed from responses
@@ -276,6 +297,8 @@ With the server already running (`node scripts/server.mjs`):
 - QoE full cycle: good --> degraded --> recovered (TTL 300 --> 10 --> 300)
 - Master + QoE interaction: QoE demotes even with active master override
 - Disaster recovery: exclude --> verify removed --> clear --> verify restored
+- Master override precedence: override takes effect over client state across multi-hop
+  HLS and DASH sessions, new override replaces old mid-session
 
 ---
 
@@ -605,8 +628,8 @@ function detectProtocol(path, query) {
 
 ### Before Deploy
 
-- [ ] Run all Rust tests: `cargo test` (101 tests)
-- [ ] Run E2E tests: `./scripts/run-tests.sh` (88 tests)
+- [ ] Run all Rust tests: `cargo test` (109 tests)
+- [ ] Run E2E tests: `./scripts/run-tests.sh` (98 tests)
 - [ ] Build WASM for target platform
 - [ ] Verify WASM binary size (~198 KB)
 - [ ] Configure `base_path` to match your routing
