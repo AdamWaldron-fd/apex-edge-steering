@@ -564,29 +564,48 @@ respond(200, { 'Content-Type': 'application/json' }, responseJson);
 - Rust toolchain (`rustup`)
 - `wasm32-unknown-unknown` target: `rustup target add wasm32-unknown-unknown`
 - `wasm-pack`: `cargo install wasm-pack`
+- Node.js 18+ (for local dev server and E2E tests)
 
 ### Commands
 
 ```bash
 source "$HOME/.cargo/env"
 
-# Run all 101 tests (91 unit + 10 integration)
+# Run all 101 Rust tests (91 unit + 10 integration)
 cargo test
 
 # Build WASM package for JS bundler environments
 wasm-pack build --target bundler --release
 # Output: pkg/ (~198KB .wasm + JS glue + TypeScript declarations)
 
-# Build for Node.js (Lambda@Edge)
-wasm-pack build --target nodejs --release
+# Run local dev server
+node scripts/server.mjs --port 3001
 
-# Build for web (Cloudflare Workers)
-wasm-pack build --target web --release
+# Run all 88 E2E tests (starts server automatically)
+./scripts/run-tests.sh
+
+# Run everything: cargo + WASM build + E2E
+./scripts/run-tests.sh --all
 ```
 
 **Note:** `wasm-opt` is disabled in `Cargo.toml` metadata because the bundled version
 doesn't support bulk memory operations emitted by modern Rust. Rust's own LTO (`lto = true`)
 and size optimization (`opt-level = "s"`) handle binary optimization.
+
+---
+
+## Scripts
+
+```
+scripts/
+|-- server.mjs              Local dev HTTP server (loads WASM from pkg/)
+|                            Endpoints: /steer, /control, /health, /encode-state, /config, /reset
+|-- run-tests.sh             Orchestrator: starts server, runs all E2E suites, reports results
+|                            Flags: --build (rebuild WASM), --cargo (Rust tests only), --all
+|-- test-hls-session.sh      27 HLS client session tests (state encoding, multi-hop, tokens)
+|-- test-dash-session.sh     22 DASH client session tests (queryBeforeStart, quoted pathways)
++-- test-control-plane.sh    39 control plane + QoE tests (overrides, exclusions, degradation)
+```
 
 ---
 
@@ -596,6 +615,7 @@ and size optimization (`opt-level = "s"`) handle binary optimization.
 apex-steering/
 |-- Cargo.toml                  Rust project config (cdylib + rlib targets)
 |-- Cargo.lock                  Dependency lock file
+|-- README.md                   Project README
 |-- CLAUDE.md                   This documentation
 |-- .gitignore
 |
@@ -623,7 +643,14 @@ apex-steering/
 |                                 apply_command() -- processes ControlCommands
 |
 |-- tests/
-|   +-- integration.rs          End-to-end integration tests (10 tests)
+|   +-- integration.rs          End-to-end Rust integration tests (10 tests)
+|
+|-- scripts/                    Local dev server and E2E test scripts
+|   |-- server.mjs              Node.js HTTP server loading WASM from pkg/
+|   |-- run-tests.sh            Test orchestrator
+|   |-- test-hls-session.sh     HLS E2E tests (27 tests)
+|   |-- test-dash-session.sh    DASH E2E tests (22 tests)
+|   +-- test-control-plane.sh   Control plane + QoE E2E tests (39 tests)
 |
 |-- wrappers/                   Platform-specific JS wrappers
 |   |-- akamai/
@@ -635,6 +662,14 @@ apex-steering/
 |   |   +-- worker.js           Workers fetch handler (ES module)
 |   +-- fastly/
 |       +-- index.js            Compute fetch event handler
+|
+|-- docs/                       Documentation
+|   |-- architecture.md         System design, diagrams, stateless model
+|   |-- client-usage.md         HLS/DASH player integration examples
+|   |-- control-plane.md        Master server integration, disaster recovery
+|   |-- api-reference.md        HTTP API, WASM API, JSON schemas
+|   |-- configuration.md        Policy config, QoE tuning
+|   +-- deployment.md           Local dev server, platform deployment guides
 |
 +-- pkg/                        WASM build output (generated, gitignored)
     |-- apex_steering_bg.wasm   WASM binary (~198KB)
@@ -648,9 +683,9 @@ apex-steering/
 
 ## Test Coverage
 
-**101 tests total** — all passing.
+**189 tests total** (101 Rust + 88 E2E) — all passing.
 
-### Unit Tests (91)
+### Rust Unit Tests (91)
 
 **`state.rs` — 30 tests**
 - Encode/decode roundtrips: full state, default state, many pathways, special characters
@@ -691,7 +726,7 @@ apex-steering/
 - Sequencing: set then exclude then clear
 - JSON deserialization: all three command types
 
-### Integration Tests (10)
+### Rust Integration Tests (10)
 
 | Test | Description |
 |------|-------------|
@@ -705,6 +740,14 @@ apex-steering/
 | `initial_state_encoding_for_manifest_updater` | Manifest updater encodes state, usable in steering |
 | `control_command_json_roundtrip` | JSON serialize, apply, serialize, deserialize |
 | `concurrent_viewers_independent_state` | Two viewers with different CDN assignments verified independent |
+
+### E2E HTTP Tests (88)
+
+| Suite | Tests | What It Validates |
+|-------|-------|-------------------|
+| `test-hls-session.sh` | 27 | HLS session lifecycle, state encoding, Akamai token passthrough, protocol auto-detection, JSON format |
+| `test-dash-session.sh` | 22 | DASH queryBeforeStart, quoted pathways, SERVICE-LOCATION-PRIORITY, token passthrough |
+| `test-control-plane.sh` | 39 | set/exclude/clear commands, stale rejection, QoE demotion + recovery + edge cases, master+QoE interaction, disaster recovery |
 
 ---
 

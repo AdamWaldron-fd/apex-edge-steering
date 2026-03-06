@@ -92,24 +92,81 @@ This is the **edge steering server** from Figure 3 of [Implementing HLS/DASH Con
 - Rust toolchain ([rustup](https://rustup.rs/))
 - `wasm32-unknown-unknown` target: `rustup target add wasm32-unknown-unknown`
 - `wasm-pack`: `cargo install wasm-pack`
+- Node.js 18+ (for local dev server and E2E tests)
 
 ### Build & Test
 
 ```bash
-# Run all 101 tests (91 unit + 10 integration)
+# Run all 101 Rust unit + integration tests
 cargo test
 
-# Build WASM for bundler environments (Akamai, general)
+# Build WASM module
 wasm-pack build --target bundler --release
-
-# Build for Node.js (Lambda@Edge)
-wasm-pack build --target nodejs --release
-
-# Build for web (Cloudflare Workers)
-wasm-pack build --target web --release
 ```
 
 Output: `pkg/` directory (~198 KB `.wasm` + JS glue + TypeScript declarations).
+
+### Run Locally
+
+Start a local steering server for development, POC testing, or player integration:
+
+```bash
+# Start the dev server (default port 3001)
+node scripts/server.mjs
+
+# Or specify a port
+node scripts/server.mjs --port 8080
+```
+
+The server loads the WASM module from `pkg/` and exposes all steering endpoints:
+
+```
+  GET  /steer[/hls|/dash]?...  Steering requests (player-facing)
+  POST /control                Master control commands
+  GET  /health                 Health check
+  POST /encode-state           Encode initial session state (manifest updater)
+  POST /config                 Update policy config at runtime
+  POST /reset                  Reset all overrides and config
+```
+
+Try it:
+
+```bash
+# 1. Encode initial session state (what the manifest updater does)
+curl -s -X POST http://localhost:3001/encode-state \
+  -H "Content-Type: application/json" \
+  -d '{"priorities":["cdn-a","cdn-b"],"min_bitrate":783322,"max_bitrate":4530860}'
+
+# 2. Make an HLS steering request using the encoded state
+curl -s "http://localhost:3001/steer/hls?_ss=<encoded>&_HLS_pathway=cdn-a&_HLS_throughput=5140000"
+
+# 3. Push a master override
+curl -s -X POST http://localhost:3001/control \
+  -H "Content-Type: application/json" \
+  -d '{"type":"set_priorities","region":null,"priorities":["cdn-b","cdn-a"],"generation":1,"ttl_override":30}'
+
+# 4. Check health and current override state
+curl -s http://localhost:3001/health
+```
+
+See [Local Development](docs/deployment.md#local-development) for the full walkthrough.
+
+### Run E2E Tests
+
+Run the full end-to-end test suite against the live WASM server:
+
+```bash
+# Run all 88 E2E tests (starts server automatically)
+./scripts/run-tests.sh
+
+# Run everything: cargo tests + WASM rebuild + E2E tests
+./scripts/run-tests.sh --all
+
+# Run individual test suites (server must be running)
+./scripts/test-hls-session.sh       # 27 HLS client tests
+./scripts/test-dash-session.sh      # 22 DASH client tests
+./scripts/test-control-plane.sh     # 39 control plane + QoE tests
+```
 
 ---
 
@@ -122,7 +179,7 @@ Output: `pkg/` directory (~198 KB `.wasm` + JS glue + TypeScript declarations).
 | [Control Plane Guide](docs/control-plane.md) | Master server integration, override commands, disaster recovery |
 | [API Reference](docs/api-reference.md) | HTTP endpoints, WASM exports, TypeScript declarations, JSON schemas |
 | [Configuration & Tuning](docs/configuration.md) | Policy config, QoE parameters, TTL tuning |
-| [Deployment Guide](docs/deployment.md) | Platform-specific deployment for Akamai, CloudFront, Cloudflare, Fastly |
+| [Deployment Guide](docs/deployment.md) | Local dev server, Akamai, CloudFront, Cloudflare, Fastly |
 
 ---
 
@@ -150,6 +207,13 @@ apex-steering/
 │   ├── cloudfront/            Lambda@Edge
 │   ├── cloudflare/            Workers
 │   └── fastly/                Compute@Edge
+│
+├── scripts/
+│   ├── server.mjs             Local dev server (loads WASM, serves HTTP)
+│   ├── run-tests.sh           Test orchestrator (--build, --cargo, --all)
+│   ├── test-hls-session.sh    27 HLS client E2E tests
+│   ├── test-dash-session.sh   22 DASH client E2E tests
+│   └── test-control-plane.sh  39 control plane + QoE E2E tests
 │
 ├── docs/                      Documentation
 │   ├── architecture.md
@@ -182,15 +246,25 @@ apex-steering/
 
 ## Test Coverage
 
-**101 tests**, all passing.
+**189 tests total** (101 Rust + 88 E2E), all passing.
 
-| Module | Unit Tests | Coverage |
-|--------|-----------|----------|
+### Rust Tests (101)
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
 | `state.rs` | 30 | Encode/decode roundtrips, query parsing, URL decoding, RELOAD-URI construction |
 | `policy.rs` | 24 | Priority logic, master overrides, pathway exclusions, QoE optimization |
 | `control.rs` | 19 | Command processing, generation idempotency, JSON deserialization |
 | `response.rs` | 18 | Response building, state propagation, token passthrough |
 | `integration.rs` | 10 | Full session lifecycles, QoE switching, disaster recovery, concurrent viewers |
+
+### E2E Tests (88)
+
+| Suite | Tests | Coverage |
+|-------|-------|----------|
+| HLS Sessions | 27 | State encoding, multi-request sessions, Akamai token passthrough, protocol auto-detection, JSON format validation |
+| DASH Sessions | 22 | queryBeforeStart, double-quoted pathways, SERVICE-LOCATION-PRIORITY format, token passthrough |
+| Control Plane + QoE | 39 | set/exclude/clear commands, stale rejection, QoE demotion, threshold edge cases, full degradation cycle, master+QoE interaction, disaster recovery |
 
 ---
 

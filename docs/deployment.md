@@ -1,18 +1,281 @@
 # Deployment Guide
 
-Platform-specific deployment instructions for Akamai EdgeWorkers, CloudFront Lambda@Edge, Cloudflare Workers, and Fastly Compute.
+Local development server, E2E testing, and platform-specific deployment instructions.
 
 ---
 
 ## Table of Contents
 
-1. [Build the WASM Module](#build-the-wasm-module)
-2. [Akamai EdgeWorkers](#akamai-edgeworkers) (primary target)
-3. [CloudFront Lambda@Edge](#cloudfront-lambdaedge)
-4. [Cloudflare Workers](#cloudflare-workers)
-5. [Fastly Compute](#fastly-compute)
-6. [Common Wrapper Pattern](#common-wrapper-pattern)
-7. [Production Checklist](#production-checklist)
+1. [Local Development](#local-development)
+2. [E2E Testing](#e2e-testing)
+3. [Build the WASM Module](#build-the-wasm-module)
+4. [Akamai EdgeWorkers](#akamai-edgeworkers) (primary target)
+5. [CloudFront Lambda@Edge](#cloudfront-lambdaedge)
+6. [Cloudflare Workers](#cloudflare-workers)
+7. [Fastly Compute](#fastly-compute)
+8. [Common Wrapper Pattern](#common-wrapper-pattern)
+9. [Production Checklist](#production-checklist)
+
+---
+
+## Local Development
+
+A local HTTP server is included for development, POC demos, and player integration testing. It loads the WASM module directly from `pkg/` and serves all steering endpoints on a configurable port.
+
+### Prerequisites
+
+- Node.js 18+
+- WASM module built in `pkg/` (run `wasm-pack build --target bundler --release`)
+
+### Start the Server
+
+```bash
+# Default port 3001
+node scripts/server.mjs
+
+# Custom port
+node scripts/server.mjs --port 8080
+```
+
+```
+apex-steering dev server listening on http://localhost:3001
+
+Endpoints:
+  GET  /steer[/hls|/dash]?...  Steering requests
+  POST /control                Master control commands
+  GET  /health                 Health check
+  POST /config                 Update policy config
+  POST /encode-state           Encode initial session state
+  POST /reset                  Reset overrides and config
+```
+
+### Dev-Only Endpoints
+
+The local server includes convenience endpoints not present in production wrappers:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/encode-state` | POST | Encode a `SessionState` JSON into a base64 `_ss` string. Simulates what the manifest updater does. |
+| `/config` | POST | Update the `PolicyConfig` at runtime without restarting. |
+| `/config` | GET | Read the current policy config. |
+| `/reset` | POST | Clear all overrides and config back to defaults. |
+
+### Walkthrough: Complete HLS Session
+
+```bash
+# 1. Encode initial session state (manifest updater step)
+ENCODE=$(curl -s -X POST http://localhost:3001/encode-state \
+  -H "Content-Type: application/json" \
+  -d '{
+    "priorities": ["cdn-a", "cdn-b"],
+    "throughput_map": [],
+    "min_bitrate": 783322,
+    "max_bitrate": 4530860,
+    "duration": 3600,
+    "position": 0,
+    "timestamp": 1700000000,
+    "override_gen": 0
+  }')
+echo "$ENCODE" | python3 -m json.tool
+
+# Extract the encoded state
+SS=$(echo "$ENCODE" | python3 -c "import sys,json; print(json.load(sys.stdin)['encoded'])")
+
+# 2. First HLS steering request (simulates player's first call)
+curl -s "http://localhost:3001/steer/hls?session=abc&_ss=$SS" | python3 -m json.tool
+# Response:
+# {
+#   "VERSION": 1,
+#   "TTL": 300,
+#   "RELOAD-URI": "/steer?session=abc&_ss=...",
+#   "PATHWAY-PRIORITY": ["cdn-a", "cdn-b"]
+# }
+
+# 3. Follow-up with pathway and throughput (player reports current CDN + speed)
+# Use the RELOAD-URI query from step 2, append _HLS_pathway and _HLS_throughput
+curl -s "http://localhost:3001/steer/hls?session=abc&_ss=$SS&_HLS_pathway=cdn-a&_HLS_throughput=5140000" \
+  | python3 -m json.tool
+
+# 4. Push a master override (simulate master server)
+curl -s -X POST http://localhost:3001/control \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "set_priorities",
+    "region": null,
+    "priorities": ["cdn-b", "cdn-a"],
+    "generation": 1,
+    "ttl_override": 30
+  }' | python3 -m json.tool
+
+# 5. Next steering request picks up the override
+curl -s "http://localhost:3001/steer/hls?session=abc&_ss=$SS&_HLS_pathway=cdn-a&_HLS_throughput=5140000" \
+  | python3 -m json.tool
+# Response now has:
+#   "PATHWAY-PRIORITY": ["cdn-b", "cdn-a"],
+#   "TTL": 30
+
+# 6. Check health (shows current override state)
+curl -s http://localhost:3001/health | python3 -m json.tool
+
+# 7. Reset everything
+curl -s -X POST http://localhost:3001/reset | python3 -m json.tool
+```
+
+### Walkthrough: DASH queryBeforeStart Session
+
+```bash
+# 1. Encode state for DASH content
+SS=$(curl -s -X POST http://localhost:3001/encode-state \
+  -H "Content-Type: application/json" \
+  -d '{"priorities":["alpha","beta"],"min_bitrate":500000,"max_bitrate":6000000}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['encoded'])")
+
+# 2. First request: queryBeforeStart=true (no _DASH_ params yet)
+curl -s "http://localhost:3001/steer/dash?token=234523452&_ss=$SS" | python3 -m json.tool
+# Response:
+# {
+#   "VERSION": 1,
+#   "TTL": 300,
+#   "RELOAD-URI": "/steer?token=234523452&_ss=...",
+#   "SERVICE-LOCATION-PRIORITY": ["alpha", "beta"]
+# }
+
+# 3. Follow-up with DASH pathway (note: double-quoted per spec, but unquoted works too)
+curl -s "http://localhost:3001/steer/dash?token=234523452&_ss=$SS&_DASH_pathway=alpha&_DASH_throughput=5140000" \
+  | python3 -m json.tool
+```
+
+### Walkthrough: QoE CDN Switching
+
+```bash
+# Setup: state with known encoding ladder
+SS=$(curl -s -X POST http://localhost:3001/encode-state \
+  -H "Content-Type: application/json" \
+  -d '{"priorities":["cdn-a","cdn-b"],"min_bitrate":1000000,"max_bitrate":8000000}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['encoded'])")
+
+# Good throughput: cdn-a stays on top, TTL=300
+curl -s "http://localhost:3001/steer/hls?_ss=$SS&_HLS_pathway=cdn-a&_HLS_throughput=5000000" \
+  | python3 -m json.tool
+
+# Degraded throughput (500K < 1.2 * 1M threshold): cdn-a demoted, TTL=10
+curl -s "http://localhost:3001/steer/hls?_ss=$SS&_HLS_pathway=cdn-a&_HLS_throughput=500000" \
+  | python3 -m json.tool
+# Response:
+#   "PATHWAY-PRIORITY": ["cdn-b", "cdn-a"],  <-- cdn-b promoted
+#   "TTL": 10                                 <-- fast re-evaluation
+```
+
+### Walkthrough: Disaster Recovery
+
+```bash
+# Exclude a CDN (outage detected by master)
+curl -s -X POST http://localhost:3001/control \
+  -H "Content-Type: application/json" \
+  -d '{"type":"exclude_pathway","region":null,"pathway":"cdn-a","generation":1}'
+
+# Steering responses no longer include cdn-a
+curl -s "http://localhost:3001/steer/hls?_ss=$SS" | python3 -m json.tool
+
+# CDN recovered — clear all overrides
+curl -s -X POST http://localhost:3001/control \
+  -H "Content-Type: application/json" \
+  -d '{"type":"clear_overrides","region":null,"generation":2}'
+```
+
+### Server Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Local Dev Server (scripts/server.mjs)                        │
+│                                                               │
+│  Node.js HTTP server + WASM loader                            │
+│                                                               │
+│  ┌───────────────────────────────────────────────────────┐   │
+│  │  WASM Module (pkg/apex_steering_bg.wasm)               │   │
+│  │  Loaded via WebAssembly.instantiate() at startup       │   │
+│  │                                                        │   │
+│  │  Exports:                                              │   │
+│  │    handle_steering_request()                           │   │
+│  │    parse_request()                                     │   │
+│  │    apply_control_command()                             │   │
+│  │    encode_initial_state()                              │   │
+│  └───────────────────────────────────────────────────────┘   │
+│                                                               │
+│  In-memory state:                                             │
+│    overridesJson  (updated via POST /control)                 │
+│    configJson     (updated via POST /config)                  │
+│                                                               │
+│  Routes:                                                      │
+│    GET  /steer/**    → parse_request + handle_steering_request│
+│    POST /control     → apply_control_command                  │
+│    GET  /health      → status + current overrides             │
+│    POST /encode-state→ encode_initial_state (dev only)        │
+│    POST /config      → update PolicyConfig (dev only)         │
+│    POST /reset       → clear all state (dev only)             │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## E2E Testing
+
+Three test suites validate the full HTTP request/response cycle against the live WASM server. Tests use cURL and Python for JSON extraction.
+
+### Run All Tests
+
+```bash
+# Start server, run all 88 E2E tests, stop server
+./scripts/run-tests.sh
+
+# Full pipeline: cargo tests + WASM build + E2E
+./scripts/run-tests.sh --all
+
+# Cargo tests only
+./scripts/run-tests.sh --cargo
+```
+
+### Run Individual Suites
+
+With the server already running (`node scripts/server.mjs`):
+
+```bash
+./scripts/test-hls-session.sh http://localhost:3001     # 27 tests
+./scripts/test-dash-session.sh http://localhost:3001     # 22 tests
+./scripts/test-control-plane.sh http://localhost:3001    # 39 tests
+```
+
+### Test Suites
+
+**HLS Client Sessions** (`test-hls-session.sh`) -- 27 tests:
+- Initial state encoding via `/encode-state`
+- First request with no pathway (session start)
+- Follow-up with `_HLS_pathway` + `_HLS_throughput`
+- State accumulation across 3 requests
+- Akamai EdgeAuth token passthrough (4 tokens, verified across 2 hops)
+- Protocol auto-detection from `_HLS_*` query params
+- HLS response JSON format: `VERSION`, `TTL`, `RELOAD-URI`, `PATHWAY-PRIORITY` present; `SERVICE-LOCATION-PRIORITY` absent
+
+**DASH Client Sessions** (`test-dash-session.sh`) -- 22 tests:
+- `queryBeforeStart` first request (no `_DASH_*` params)
+- Follow-up with `_DASH_pathway` + `_DASH_throughput`
+- Double-quoted `_DASH_pathway` (`%22alpha%22`) per DASH-IF spec
+- Protocol auto-detection from `_DASH_*` query params
+- DASH response JSON format: `SERVICE-LOCATION-PRIORITY` present; `PATHWAY-PRIORITY` absent
+- Token passthrough for DASH sessions
+
+**Control Plane + QoE** (`test-control-plane.sh`) -- 39 tests:
+- `set_priorities`: command accepted, affects steering responses, TTL override
+- Stale command rejection: generation-based idempotency (equal and lower gen rejected)
+- `exclude_pathway`: CDN removed from responses
+- `clear_overrides`: priorities and exclusions restored
+- Malformed command returns HTTP 400
+- QoE demotion: degraded throughput (500K < 1.2M threshold) demotes top CDN, TTL=10
+- QoE healthy: good throughput keeps normal priorities and TTL=300
+- QoE edge cases: exactly at threshold (not degraded), just below (degraded)
+- QoE full cycle: good --> degraded --> recovered (TTL 300 --> 10 --> 300)
+- Master + QoE interaction: QoE demotes even with active master override
+- Disaster recovery: exclude --> verify removed --> clear --> verify restored
 
 ---
 
@@ -342,7 +605,8 @@ function detectProtocol(path, query) {
 
 ### Before Deploy
 
-- [ ] Run all 101 tests: `cargo test`
+- [ ] Run all Rust tests: `cargo test` (101 tests)
+- [ ] Run E2E tests: `./scripts/run-tests.sh` (88 tests)
 - [ ] Build WASM for target platform
 - [ ] Verify WASM binary size (~198 KB)
 - [ ] Configure `base_path` to match your routing
