@@ -1,0 +1,11 @@
+{
+  "edgeworker-version": "0.1.0",
+  "description": "apex-steering: Stateless HLS/DASH Content Steering edge server",
+  "match-rules": {
+    "OR": [
+      { "matches": [{ "name": "path", "value": "/steer/*" }] },
+      { "matches": [{ "name": "path", "value": "/control" }] },
+      { "matches": [{ "name": "path", "value": "/health" }] }
+    ]
+  }
+}
