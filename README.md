@@ -277,6 +277,3 @@ apex-steering/
 - [DASH-IF Content Steering CTS 00XX v0.9.0](https://dashif.org/docs/DASH-IF-CTS-00XX-Content-Steering-Community-Review.pdf) (DASH-IF, 2022)
 - [Implementing HLS/DASH Content Steering at Scale](https://www.ibc.org/technical-papers/implementing-hls-dash-content-steering-at-scale/10567.article) (Reznik et al., Brightcove, IBC2023)
 
-## License
-
-MIT
