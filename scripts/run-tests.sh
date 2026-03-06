@@ -61,7 +61,7 @@ cd "$PROJECT_DIR"
 
 echo ""
 bold "╔══════════════════════════════════════════════╗"
-bold "║       apex-steering test runner              ║"
+bold "║       apex-edge-steering test runner              ║"
 bold "╚══════════════════════════════════════════════╝"
 echo ""
 
@@ -109,16 +109,16 @@ fi
 # ─── Step 3: Verify WASM exists ──────────────────────────────────────────────
 
 if [ "$RUN_E2E" = true ]; then
-  if [ ! -f "$PROJECT_DIR/pkg/apex_steering_bg.wasm" ]; then
+  if [ ! -f "$PROJECT_DIR/pkg/apex_edge_steering_bg.wasm" ]; then
     echo ""
-    red "ERROR: pkg/apex_steering_bg.wasm not found."
+    red "ERROR: pkg/apex_edge_steering_bg.wasm not found."
     echo "Run with --build to build the WASM module first, or run:"
     echo "  wasm-pack build --target bundler --release"
     echo ""
     exit 1
   fi
 
-  WASM_SIZE=$(wc -c < "$PROJECT_DIR/pkg/apex_steering_bg.wasm" | tr -d ' ')
+  WASM_SIZE=$(wc -c < "$PROJECT_DIR/pkg/apex_edge_steering_bg.wasm" | tr -d ' ')
   echo "WASM binary: ${WASM_SIZE} bytes ($(( WASM_SIZE / 1024 )) KB)"
   echo ""
 

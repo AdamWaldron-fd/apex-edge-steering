@@ -1,11 +1,11 @@
-//! Integration tests for apex-steering.
+//! Integration tests for apex-edge-steering.
 //!
 //! These tests exercise the full end-to-end steering flow through the public
 //! Rust API (same code paths as the WASM exports), simulating realistic
 //! multi-request sessions for both HLS and DASH protocols.
 
-use apex_steering::types::*;
-use apex_steering::*;
+use apex_edge_steering::types::*;
+use apex_edge_steering::*;
 
 // ─── Helper: simulate a full steering request cycle ──────────────────────────
 

@@ -176,7 +176,7 @@ Simple health check endpoint.
 **Response (200 OK):**
 
 ```json
-{"status": "ok", "engine": "apex-steering"}
+{"status": "ok", "engine": "apex-edge-steering"}
 ```
 
 ---
@@ -376,7 +376,7 @@ reset_initial_state();
 
 ## TypeScript Declarations
 
-Generated automatically in `pkg/apex_steering.d.ts` by `wasm-pack build`:
+Generated automatically in `pkg/apex_edge_steering.d.ts` by `wasm-pack build`:
 
 ```typescript
 /**

@@ -1,11 +1,11 @@
 /**
- * Fastly Compute@Edge wrapper for apex-steering.
+ * Fastly Compute@Edge wrapper for apex-edge-steering.
  *
  * Fastly Compute runs WASM natively. This wrapper uses the Fastly JS SDK
  * which internally compiles to WASM.
  */
 
-import { handle_steering_request, parse_request, apply_control_command } from '../../pkg/apex_steering';
+import { handle_steering_request, parse_request, apply_control_command } from '../../pkg/apex_edge_steering';
 
 // In-memory override state.
 let overridesJson = '';
@@ -25,7 +25,7 @@ async function handleRequest(request) {
   // Health
   if (path === '/health') {
     return new Response(
-      JSON.stringify({ status: 'ok', engine: 'apex-steering' }),
+      JSON.stringify({ status: 'ok', engine: 'apex-edge-steering' }),
       { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
     );
   }

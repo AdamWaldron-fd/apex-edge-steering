@@ -2,7 +2,7 @@
 
 ## Overview
 
-apex-steering is a **stateless edge content steering server** that makes per-session CDN routing decisions at the edge. It implements the two-stage architecture from [Implementing HLS/DASH Content Steering at Scale](https://www.ibc.org/technical-papers/implementing-hls-dash-content-steering-at-scale/10567.article) (Reznik et al., Brightcove, IBC2023, Figure 3).
+apex-edge-steering is a **stateless edge content steering server** that makes per-session CDN routing decisions at the edge. It implements the two-stage architecture from [Implementing HLS/DASH Content Steering at Scale](https://www.ibc.org/technical-papers/implementing-hls-dash-content-steering-at-scale/10567.article) (Reznik et al., Brightcove, IBC2023, Figure 3).
 
 ---
 
@@ -31,7 +31,7 @@ apex-steering is a **stateless edge content steering server** that makes per-ses
            v                                              v
 ┌──────────────────┐                           ┌──────────────────────────────┐
 │  MANIFEST        │                           │  EDGE STEERING SERVER        │
-│  UPDATER         │                           │  (apex-steering)             │
+│  UPDATER         │                           │  (apex-edge-steering)             │
 │                  │                           │                              │
 │  Encodes initial │                           │  ┌────────────────────────┐  │
 │  SessionState    │                           │  │   Rust -> WASM Core    │  │

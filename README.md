@@ -1,4 +1,4 @@
-# apex-steering
+# apex-edge-steering
 
 Stateless edge content steering server for HLS and DASH streaming.
 
@@ -188,7 +188,7 @@ Run the full end-to-end test suite against the live WASM server:
 ## Project Layout
 
 ```
-apex-steering/
+apex-edge-steering/
 ├── Cargo.toml                 Project config (cdylib + rlib)
 ├── README.md                  This file
 ├── CLAUDE.md                  AI assistant context
@@ -227,9 +227,9 @@ apex-steering/
 │   └── deployment.md
 │
 └── pkg/                       Build output (gitignored)
-    ├── apex_steering_bg.wasm  WASM binary (~198 KB)
-    ├── apex_steering.js       ES module entry
-    ├── apex_steering.d.ts     TypeScript declarations
+    ├── apex_edge_steering_bg.wasm  WASM binary (~198 KB)
+    ├── apex_edge_steering.js       ES module entry
+    ├── apex_edge_steering.d.ts     TypeScript declarations
     └── package.json           npm metadata
 ```
 

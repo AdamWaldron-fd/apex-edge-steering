@@ -2,7 +2,7 @@
 #
 # test-hls-session.sh — End-to-end HLS Content Steering session tests
 #
-# Tests the full HLS client lifecycle against a running apex-steering server:
+# Tests the full HLS client lifecycle against a running apex-edge-steering server:
 #   1. Initial state encoding (manifest updater)
 #   2. First steering request (no pathway yet)
 #   3. Follow-up with pathway + throughput

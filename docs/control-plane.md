@@ -29,7 +29,7 @@ The control plane allows a master steering server to push runtime overrides to e
 ┌──────────────────┐     POST /control      ┌──────────────────┐
 │                  │ ────────────────────>   │                  │
 │  Master Server   │     command JSON        │  Edge Server     │
-│  (your backend)  │                         │  (apex-steering) │
+│  (your backend)  │                         │  (apex-edge-steering) │
 │                  │ <────────────────────   │                  │
 │                  │     updated overrides   │                  │
 └──────────────────┘                         └──────────────────┘
@@ -297,7 +297,7 @@ await sendCommand({
 ### Rust: Direct API Usage (non-WASM)
 
 ```rust
-use apex_steering::{apply_command, types::*};
+use apex_edge_steering::{apply_command, types::*};
 
 let mut overrides = OverrideState::default();
 
@@ -357,7 +357,7 @@ curl -X POST https://steer.example.com/control \
 
 # 3. Monitor: check health endpoint to verify edge servers are responsive
 curl https://steer.example.com/health
-# {"status":"ok","engine":"apex-steering"}
+# {"status":"ok","engine":"apex-edge-steering"}
 
 # 4. CLEAR when CDN recovers
 curl -X POST https://steer.example.com/control \
@@ -417,7 +417,7 @@ Because commands with `generation <= current` are rejected, re-sending the same 
 
 ### Regional Targeting
 
-Commands support an optional `region` field. While apex-steering doesn't enforce region filtering at the edge level (the edge server applies all commands), this field enables:
+Commands support an optional `region` field. While apex-edge-steering doesn't enforce region filtering at the edge level (the edge server applies all commands), this field enables:
 
 1. **Routing-based isolation** -- different edge server deployments per region
 2. **Master-side filtering** -- master only pushes relevant commands to each region's edge servers
@@ -503,7 +503,7 @@ The `POST /control` response returns the full current override state:
 
 ```bash
 curl https://steer.example.com/health
-# {"status":"ok","engine":"apex-steering"}
+# {"status":"ok","engine":"apex-edge-steering"}
 ```
 
 ### Override State Lifecycle

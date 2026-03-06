@@ -1,5 +1,5 @@
 /**
- * Local development HTTP server for apex-steering.
+ * Local development HTTP server for apex-edge-steering.
  *
  * Loads the WASM module from pkg/ and serves the three endpoints:
  *   GET  /steer/**  — steering requests (HLS + DASH)
@@ -23,14 +23,14 @@ const PKG_DIR = join(__dirname, '..', 'pkg');
 async function loadWasm() {
   // Read the glue JS as text so we can extract the import object shape,
   // then manually instantiate the WASM binary.
-  const wasmBytes = await readFile(join(PKG_DIR, 'apex_steering_bg.wasm'));
+  const wasmBytes = await readFile(join(PKG_DIR, 'apex_edge_steering_bg.wasm'));
 
   // We need to provide the __wbg_* imports that the WASM module expects.
   // Import the bg.js glue to get the helper functions, then wire them up.
-  const glue = await import(join(PKG_DIR, 'apex_steering_bg.js'));
+  const glue = await import(join(PKG_DIR, 'apex_edge_steering_bg.js'));
 
   const importObject = {
-    './apex_steering_bg.js': {
+    './apex_edge_steering_bg.js': {
       __wbg_Error_83742b46f01ce22d: glue.__wbg_Error_83742b46f01ce22d,
     },
   };
@@ -108,7 +108,7 @@ async function createHandler(wasm) {
 
     // Health check
     if (path === '/health') {
-      return respond(res, 200, { status: 'ok', engine: 'apex-steering', overrides: overridesJson ? JSON.parse(overridesJson) : null });
+      return respond(res, 200, { status: 'ok', engine: 'apex-edge-steering', overrides: overridesJson ? JSON.parse(overridesJson) : null });
     }
 
     // Control plane: POST /control
@@ -195,7 +195,7 @@ const server = createServer((req, res) => handler(req, res).catch((err) => {
 }));
 
 server.listen(PORT, () => {
-  console.log(`\napex-steering dev server listening on http://localhost:${PORT}`);
+  console.log(`\napex-edge-steering dev server listening on http://localhost:${PORT}`);
   console.log(`\nEndpoints:`);
   console.log(`  GET  /                       Dev UI`);
   console.log(`  GET  /steer[/hls|/dash]?...  Steering requests`);

@@ -2,7 +2,7 @@
 #
 # test-dash-session.sh — End-to-end DASH Content Steering session tests
 #
-# Tests the full DASH client lifecycle against a running apex-steering server:
+# Tests the full DASH client lifecycle against a running apex-edge-steering server:
 #   1. queryBeforeStart request (no _DASH_ params)
 #   2. Follow-up with pathway + throughput
 #   3. Double-quoted pathway handling (DASH spec)

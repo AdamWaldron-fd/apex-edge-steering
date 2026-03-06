@@ -1,5 +1,5 @@
 [package]
-name = "apex-steering"
+name = "apex-edge-steering"
 version = "0.1.0"
 edition = "2021"
 description = "Stateless edge content steering server implementing HLS and DASH Content Steering"

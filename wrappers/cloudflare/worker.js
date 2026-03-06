@@ -1,10 +1,10 @@
 /**
- * Cloudflare Workers wrapper for apex-steering.
+ * Cloudflare Workers wrapper for apex-edge-steering.
  *
  * Uses the Workers fetch event API. WASM is loaded as a module import.
  */
 
-import { handle_steering_request, parse_request, apply_control_command } from '../../pkg/apex_steering';
+import { handle_steering_request, parse_request, apply_control_command } from '../../pkg/apex_edge_steering';
 
 // In-memory override state (lives for the lifetime of the isolate).
 let overridesJson = '';
@@ -21,7 +21,7 @@ export default {
     // Health
     if (path === '/health') {
       return new Response(
-        JSON.stringify({ status: 'ok', engine: 'apex-steering' }),
+        JSON.stringify({ status: 'ok', engine: 'apex-edge-steering' }),
         { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
       );
     }

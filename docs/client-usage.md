@@ -1,6 +1,6 @@
 # Client Usage Guide
 
-This guide shows how to integrate apex-steering with HLS and DASH players. The examples cover manifest setup, player configuration, and what happens during a streaming session.
+This guide shows how to integrate apex-edge-steering with HLS and DASH players. The examples cover manifest setup, player configuration, and what happens during a streaming session.
 
 ---
 
@@ -169,7 +169,7 @@ GET /steer?token=234523452&_ss=<state>
 GET /steer?token=234523452&_ss=<state>&_DASH_pathway=%22alpha%22&_DASH_throughput=5140000
 ```
 
-Note: DASH spec requires `_DASH_pathway` values to be double-quoted (URL-encoded as `%22`). apex-steering handles both quoted and unquoted values.
+Note: DASH spec requires `_DASH_pathway` values to be double-quoted (URL-encoded as `%22`). apex-edge-steering handles both quoted and unquoted values.
 
 ### 3. What the Player Receives
 
@@ -220,7 +220,7 @@ The manifest updater (or master steering server) needs to encode initial session
 ### Node.js Example (Manifest Updater)
 
 ```javascript
-const { encode_initial_state } = require('apex-steering');
+const { encode_initial_state } = require('apex-edge-steering');
 
 function generateServerUri(basePath, priorities, encodingLadder, tokens) {
   // Build the initial session state
@@ -261,7 +261,7 @@ const serverUri = generateServerUri(
 ### Rust Example (Manifest Updater)
 
 ```rust
-use apex_steering::{encode_state, types::SessionState};
+use apex_edge_steering::{encode_state, types::SessionState};
 
 let state = SessionState {
     priorities: vec!["cdn-a".into(), "cdn-b".into()],
@@ -349,7 +349,7 @@ Request 2: GET /steer?token=234523452&_ss=<s1>&_DASH_pathway=%22alpha%22&_DASH_t
 
 ## CDN Token Passthrough
 
-apex-steering automatically preserves all non-steering query parameters across every `RELOAD-URI`. This is essential for CDN authentication tokens.
+apex-edge-steering automatically preserves all non-steering query parameters across every `RELOAD-URI`. This is essential for CDN authentication tokens.
 
 ### Akamai EdgeAuth Example
 

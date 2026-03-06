@@ -38,7 +38,7 @@ node scripts/server.mjs --port 8080
 ```
 
 ```
-apex-steering dev server listening on http://localhost:3001
+apex-edge-steering dev server listening on http://localhost:3001
 
 Endpoints:
   GET  /                       Dev UI
@@ -211,7 +211,7 @@ curl -s -X POST http://localhost:3001/control \
 │  Node.js HTTP server + WASM loader                            │
 │                                                               │
 │  ┌───────────────────────────────────────────────────────┐   │
-│  │  WASM Module (pkg/apex_steering_bg.wasm)               │   │
+│  │  WASM Module (pkg/apex_edge_steering_bg.wasm)               │   │
 │  │  Loaded via WebAssembly.instantiate() at startup       │   │
 │  │                                                        │   │
 │  │  Exports:                                              │   │
@@ -325,10 +325,10 @@ Output in `pkg/`:
 
 ```
 pkg/
-├── apex_steering_bg.wasm    ~198 KB WASM binary
-├── apex_steering_bg.js      JS glue code
-├── apex_steering.js          ES module entry
-├── apex_steering.d.ts        TypeScript declarations
+├── apex_edge_steering_bg.wasm    ~198 KB WASM binary
+├── apex_edge_steering_bg.js      JS glue code
+├── apex_edge_steering.js          ES module entry
+├── apex_edge_steering.d.ts        TypeScript declarations
 └── package.json              npm metadata
 ```
 
@@ -338,7 +338,7 @@ Note: `wasm-opt` is disabled in `Cargo.toml` because the bundled version doesn't
 
 ## Akamai EdgeWorkers
 
-apex-steering is designed with Akamai as the primary deployment target.
+apex-edge-steering is designed with Akamai as the primary deployment target.
 
 ### Files
 
@@ -358,12 +358,12 @@ wasm-pack build --target bundler --release
 mkdir -p bundle
 cp wrappers/akamai/main.js bundle/
 cp wrappers/akamai/bundle.json bundle/
-cp pkg/apex_steering_bg.wasm bundle/
-cp pkg/apex_steering_bg.js bundle/
-cp pkg/apex_steering.js bundle/
+cp pkg/apex_edge_steering_bg.wasm bundle/
+cp pkg/apex_edge_steering_bg.js bundle/
+cp pkg/apex_edge_steering.js bundle/
 
 # 3. Package as tarball for upload
-cd bundle && tar -czf ../apex-steering-edgeworker.tgz . && cd ..
+cd bundle && tar -czf ../apex-edge-steering-edgeworker.tgz . && cd ..
 ```
 
 ### Path Matching
@@ -373,7 +373,7 @@ Configured in `bundle.json`:
 ```json
 {
   "edgeworker-version": "0.1.0",
-  "description": "apex-steering: Stateless HLS/DASH Content Steering edge server",
+  "description": "apex-edge-steering: Stateless HLS/DASH Content Steering edge server",
   "match-rules": {
     "OR": [
       { "matches": [{ "name": "path", "value": "/steer/*" }] },
@@ -388,7 +388,7 @@ Configured in `bundle.json`:
 
 ```bash
 # Using Akamai CLI
-akamai edgeworkers upload --bundle apex-steering-edgeworker.tgz --ewid <EDGEWORKER_ID>
+akamai edgeworkers upload --bundle apex-edge-steering-edgeworker.tgz --ewid <EDGEWORKER_ID>
 akamai edgeworkers activate --ewid <EDGEWORKER_ID> --network staging
 # After validation:
 akamai edgeworkers activate --ewid <EDGEWORKER_ID> --network production
@@ -443,12 +443,12 @@ wasm-pack build --target nodejs --release
 # 2. Create deployment package
 mkdir -p lambda-package
 cp wrappers/cloudfront/index.js lambda-package/
-cp pkg/apex_steering_bg.wasm lambda-package/
-cp pkg/apex_steering.js lambda-package/
-cp pkg/apex_steering_bg.js lambda-package/
+cp pkg/apex_edge_steering_bg.wasm lambda-package/
+cp pkg/apex_edge_steering.js lambda-package/
+cp pkg/apex_edge_steering_bg.js lambda-package/
 
 # 3. Create zip for Lambda
-cd lambda-package && zip -r ../apex-steering-lambda.zip . && cd ..
+cd lambda-package && zip -r ../apex-edge-steering-lambda.zip . && cd ..
 ```
 
 ### Deploy
@@ -456,14 +456,14 @@ cd lambda-package && zip -r ../apex-steering-lambda.zip . && cd ..
 ```bash
 # Create Lambda function
 aws lambda create-function \
-  --function-name apex-steering \
+  --function-name apex-edge-steering \
   --runtime nodejs18.x \
   --handler index.handler \
-  --zip-file fileb://apex-steering-lambda.zip \
+  --zip-file fileb://apex-edge-steering-lambda.zip \
   --role arn:aws:iam::123456789:role/lambda-edge-role
 
 # Publish version (required for Lambda@Edge)
-aws lambda publish-version --function-name apex-steering
+aws lambda publish-version --function-name apex-edge-steering
 
 # Associate with CloudFront distribution as viewer-request trigger
 ```
@@ -506,7 +506,7 @@ wrappers/cloudflare/
 
 ```toml
 # wrangler.toml
-name = "apex-steering"
+name = "apex-edge-steering"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
@@ -574,7 +574,7 @@ All four platform wrappers follow the same thin pattern (~80-100 lines each):
 
 ```javascript
 // 1. Import WASM functions
-import { handle_steering_request, parse_request, apply_control_command } from './pkg/apex_steering';
+import { handle_steering_request, parse_request, apply_control_command } from './pkg/apex_edge_steering';
 
 // 2. In-memory state (per worker instance)
 let overridesJson = '';
@@ -588,7 +588,7 @@ async function handleRequest(request) {
 
   // Health check
   if (path === '/health') {
-    return respond(200, { status: 'ok', engine: 'apex-steering' });
+    return respond(200, { status: 'ok', engine: 'apex-edge-steering' });
   }
 
   // Control plane
@@ -656,7 +656,7 @@ Override state is **in-memory** per worker instance:
 
 ### Monitoring
 
-- Health check: `GET /health` returns `{"status":"ok","engine":"apex-steering"}`
+- Health check: `GET /health` returns `{"status":"ok","engine":"apex-edge-steering"}`
 - Override state: inspect response from `POST /control`
 - TTL=10 in responses indicates active QoE optimization (CDN degradation detected)
 

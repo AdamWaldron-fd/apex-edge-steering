@@ -1,4 +1,4 @@
-# apex-steering
+# apex-edge-steering
 
 Stateless edge content steering server implementing both
 [HLS Content Steering](https://developer.apple.com/streaming/HLSContentSteeringSpecification.pdf)
@@ -341,7 +341,7 @@ Revert to master-assigned defaults:
 ### GET /health
 
 ```json
-{"status": "ok", "engine": "apex-steering"}
+{"status": "ok", "engine": "apex-edge-steering"}
 ```
 
 ---
@@ -414,7 +414,7 @@ Used by platform wrappers for reset operations (e.g., the local dev server's `PO
 
 ### TypeScript Declarations
 
-Generated automatically in `pkg/apex_steering.d.ts`:
+Generated automatically in `pkg/apex_edge_steering.d.ts`:
 
 ```typescript
 export function handle_steering_request(
@@ -632,7 +632,7 @@ scripts/
 ## Project Layout
 
 ```
-apex-steering/
+apex-edge-steering/
 |-- Cargo.toml                  Rust project config (cdylib + rlib targets)
 |-- Cargo.lock                  Dependency lock file
 |-- README.md                   Project README
@@ -695,10 +695,10 @@ apex-steering/
 |   +-- deployment.md           Local dev server, platform deployment guides
 |
 +-- pkg/                        WASM build output (generated, gitignored)
-    |-- apex_steering_bg.wasm   WASM binary (~198KB)
-    |-- apex_steering_bg.js     JS glue code
-    |-- apex_steering.js        ES module entry point
-    |-- apex_steering.d.ts      TypeScript declarations
+    |-- apex_edge_steering_bg.wasm   WASM binary (~198KB)
+    |-- apex_edge_steering_bg.js     JS glue code
+    |-- apex_edge_steering.js        ES module entry point
+    |-- apex_edge_steering.d.ts      TypeScript declarations
     +-- package.json            npm package metadata
 ```
 

@@ -1,11 +1,11 @@
 /**
- * CloudFront Lambda@Edge wrapper for apex-steering.
+ * CloudFront Lambda@Edge wrapper for apex-edge-steering.
  *
  * Deployed as a viewer-request Lambda@Edge function.
  * Routes steering requests to the WASM core, returns steering manifest responses.
  */
 
-const { handle_steering_request, parse_request, apply_control_command } = require('../../pkg/apex_steering');
+const { handle_steering_request, parse_request, apply_control_command } = require('../../pkg/apex_edge_steering');
 
 // In-memory override state.
 let overridesJson = '';
@@ -27,7 +27,7 @@ exports.handler = async (event) => {
         'content-type': [{ value: 'application/json' }],
         'cache-control': [{ value: 'no-store' }],
       },
-      body: JSON.stringify({ status: 'ok', engine: 'apex-steering' }),
+      body: JSON.stringify({ status: 'ok', engine: 'apex-edge-steering' }),
     };
   }
 

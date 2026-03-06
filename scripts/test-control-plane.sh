@@ -434,7 +434,7 @@ echo ""
 
 HEALTH=$(curl -s "$BASE/health")
 assert_contains "health check OK" "$HEALTH" '"status":"ok"'
-assert_contains "health check has engine" "$HEALTH" '"engine":"apex-steering"'
+assert_contains "health check has engine" "$HEALTH" '"engine":"apex-edge-steering"'
 
 echo ""
 

@@ -1,5 +1,5 @@
 /**
- * Akamai EdgeWorkers wrapper for apex-steering.
+ * Akamai EdgeWorkers wrapper for apex-edge-steering.
  *
  * EdgeWorkers entry point: handles incoming steering requests in the
  * onClientRequest event handler. Uses the WASM core for all protocol
@@ -8,7 +8,7 @@
  * Deployment: bundle this file with the WASM pkg into an EdgeWorker bundle.
  */
 
-import { handle_steering_request, parse_request, apply_control_command } from '../../pkg/apex_steering';
+import { handle_steering_request, parse_request, apply_control_command } from '../../pkg/apex_edge_steering';
 
 // In-memory override state. Updated via sub-requests to the control endpoint
 // or via EdgeKV reads. Persists for the lifetime of the EdgeWorker instance.
@@ -51,7 +51,7 @@ export async function onClientRequest(request) {
     return request.respondWith(200, {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
-    }, JSON.stringify({ status: 'ok', engine: 'apex-steering' }));
+    }, JSON.stringify({ status: 'ok', engine: 'apex-edge-steering' }));
   }
 
   // Steering request: GET /steer/**
