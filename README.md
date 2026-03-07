@@ -271,6 +271,18 @@ apex-edge-steering/
 
 ---
 
+## Related Projects
+
+This server is part of the **apex content steering system**:
+
+| Project | Description |
+|---------|-------------|
+| **[apex-main-steering](../apex-main-steering)** | Origin steering master — CDN load balancing, COGS optimization, contract management (TypeScript) |
+| **[apex-manifest-updater](../apex-manifest-updater)** | Edge manifest injection — steering tags, variant cloning, session state encoding (Rust/WASM) |
+| **apex-edge-steering** (this) | Edge steering server — per-session QoE optimization, failover, master override enforcement (Rust/WASM) |
+
+---
+
 ## Reference Specifications
 
 - [HLS Content Steering Specification v1.2b1](https://developer.apple.com/streaming/HLSContentSteeringSpecification.pdf) (Apple, 2021)

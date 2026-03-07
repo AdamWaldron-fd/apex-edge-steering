@@ -78,7 +78,7 @@ apex-edge-steering is a **stateless edge content steering server** that makes pe
 | Component | Role | State | Where |
 |-----------|------|-------|-------|
 | **Steering Master** | Global CDN decisions: load balancing, COGS, contracts, DR | Stateful | Central/cloud |
-| **Manifest Updater** | Encodes initial session state into manifest `SERVER-URI` | Stateless | Origin-side |
+| **Manifest Updater** | Injects steering tags, clones variants per CDN pathway, encodes session state into `SERVER-URI` | Stateless | CDN edge |
 | **Edge Steering Server** | Per-session QoE, failover, enforces master overrides | **Stateless** | CDN edge |
 | **Player** | Follows steering instructions, reports throughput | Client | End-user device |
 
